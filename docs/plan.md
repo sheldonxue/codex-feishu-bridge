@@ -120,6 +120,9 @@ It is a live-validation pass against the real runtime, real Feishu ingress, and 
 ### Desktop Live Validation
 
 - Load `apps/vscode-extension` in VSCode development mode against the real daemon.
+- Current progress in this slice:
+  - a checked-in `.vscode/launch.json` is available for the Extension Development Host
+  - `README.md` now includes the runtime helper and the extension launch workflow
 - Validate:
   - task tree
   - task detail panel

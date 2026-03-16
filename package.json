@@ -18,6 +18,8 @@
     "runtime:up": "docker compose -f docker/compose.yaml --env-file docker/.env.example up -d bridge-runtime",
     "runtime:shell": "docker compose -f docker/compose.yaml --env-file docker/.env.example exec bridge-runtime bash",
     "bridge:cli": "node scripts/bridge-cli.mjs",
+    "validate:runtime": "node scripts/live-runtime-check.mjs",
+    "validate:runtime:container": "BRIDGE_BASE_URL=http://bridge-runtime:8787 node scripts/live-runtime-check.mjs",
     "build:protocol": "npm run build -w @codex-feishu-bridge/protocol",
     "build:shared": "npm run build -w @codex-feishu-bridge/shared",
     "build:daemon": "npm run build -w @codex-feishu-bridge/bridge-daemon",

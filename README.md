@@ -65,7 +65,13 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run bridge:cli -- import
 BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run bridge:cli -- resume <task-id>
 ```
 
-8. Load `apps/vscode-extension` as an unpacked extension project in VSCode to use the desktop task view and commands.
+8. Run the read-only live runtime probe inside the development container:
+
+```bash
+npm run validate:runtime:container
+```
+
+9. Load `apps/vscode-extension` in VSCode to use the desktop task view and commands.
 
 ## Live Validation Workflow
 
@@ -96,9 +102,40 @@ curl http://127.0.0.1:8787/auth/account
 curl http://127.0.0.1:8787/auth/rate-limits
 ```
 
-5. Load `apps/vscode-extension` in a VSCode Extension Development Host and connect it to the local daemon.
-6. Create or resume a task from the extension and verify task state, diffs, approvals, and uploads against the live daemon.
-7. Expose `/feishu/webhook` with a user-provided public URL and validate threaded message creation plus reply routing from a real Feishu chat.
+5. Run the read-only runtime helper:
+
+```bash
+npm run validate:runtime
+```
+
+6. If you want a no-prompt thread creation and resume check, run:
+
+```bash
+npm run validate:runtime -- --create-thread --workspace-root /workspace/codex-feishu-bridge
+```
+
+If you are running inside `workspace-dev`, use `BRIDGE_BASE_URL=http://bridge-runtime:8787` or the shortcut:
+
+```bash
+npm run validate:runtime:container
+BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime -- --create-thread --workspace-root /workspace/codex-feishu-bridge
+```
+
+7. Build the extension and launch the Extension Development Host:
+
+```bash
+npm run build:extension
+```
+
+Then open the repository in VSCode and run the `Codex Feishu Bridge Extension` launch target from [.vscode/launch.json](/home/dungloi/Workspaces/codex-feishu-bridge/.vscode/launch.json).
+
+8. In the Extension Development Host:
+- open the `Codex Bridge Tasks` view in Explorer
+- run `Codex Bridge: Refresh Tasks`
+- run `Codex Bridge: Open Status`
+- create or resume a task and verify task state, diffs, approvals, and uploads against the daemon
+
+9. Expose `/feishu/webhook` with a user-provided public URL and validate threaded message creation plus reply routing from a real Feishu chat.
 
 ## Runtime Notes
 
@@ -111,6 +148,8 @@ curl http://127.0.0.1:8787/auth/rate-limits
 - Live runtime validation should prefer `CODEX_RUNTIME_BACKEND=stdio` so the daemon manages the real `codex app-server` process directly.
 - Reusing a host login state in Docker uses `HOST_CODEX_HOME -> /codex-home`.
 - Reusing a host Codex executable in Docker uses `HOST_CODEX_BIN_DIR -> /opt/host-codex-bin`.
+- `npm run validate:runtime` is read-only by default.
+- `npm run validate:runtime -- --create-thread` creates and resumes a real thread without sending a prompt.
 
 ## Feishu Notes
 

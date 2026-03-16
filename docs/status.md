@@ -23,18 +23,22 @@
 - Aligned the `stdio` runtime adapter with the live app-server schema for `thread/list`, timestamp normalization, object-shaped thread status, and `turn/steer`
 - Added Docker mounts for a host Codex binary directory and host Codex home during live validation
 - Verified live daemon startup, `/health`, `/auth/account`, `/auth/rate-limits`, and task reconciliation against a real ChatGPT-backed Codex home
+- Added a read-only live runtime validation script plus an opt-in no-prompt thread creation check
+- Added a checked-in VSCode Extension Development Host launch configuration for the desktop frontend
+- Verified the live runtime helper in Docker against the mock daemon in both read-only and create-thread modes
 
 ## Implemented But Not Yet Live-Validated
 
 - Real Feishu app credentials and the user-provided public callback URL are still external runtime inputs
 - VSCode extension behavior has been locally tested against mocks but still needs a live daemon validation pass
 - A full daemon-driven live pass of `thread/start`, `turn/start`, `turn/steer`, and `turn/interrupt` is still pending
+- The VSCode extension still needs a real UI pass in an Extension Development Host, even though the launch path is now documented and checked in
 
 ## Next Iteration Focus
 
 - Revalidate Feishu root-message creation, reply routing, and duplicate suppression against live webhook traffic
-- Add explicit live-loading guidance for the VSCode extension and bridge CLI workflow
 - Finish the daemon-driven live thread and turn control pass on top of the now-aligned `stdio` adapter
+- Run the documented Extension Development Host pass for the VSCode frontend
 
 ## Deferred Decisions
 

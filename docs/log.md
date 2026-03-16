@@ -37,3 +37,7 @@
   - `/auth/account` returned the real ChatGPT account snapshot
   - `/auth/rate-limits` returned real plus-plan rate-limit data
   - `/tasks` reconciled persisted real-thread state from the shared Codex home
+- Added `scripts/live-runtime-check.mjs` for read-only daemon probing and optional no-prompt thread creation checks.
+- Added a checked-in `.vscode/launch.json` so the extension can be launched in an Extension Development Host without ad hoc setup.
+- Documented the live runtime helper and the VSCode launch workflow in `README.md`.
+- Verified the helper against the mock daemon in Docker for both read-only probing and no-prompt thread creation plus resume.
