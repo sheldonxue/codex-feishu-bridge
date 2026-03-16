@@ -160,17 +160,12 @@ export class MockCodexRuntime implements CodexRuntime {
 
   async startThread(params: { cwd: string; title?: string }): Promise<CodexThreadDescriptor> {
     const threadId = `thr_${randomUUID()}`;
-    const thread: CodexThreadDescriptor = {
+    const thread = this.seedExternalThread({
       id: threadId,
       name: params.title ?? "Untitled task",
       cwd: params.cwd,
       updatedAt: nowIso(),
       status: { type: "idle" },
-    };
-
-    this.threads.set(threadId, {
-      descriptor: thread,
-      turns: new Map(),
     });
 
     this.emitNotification("thread/started", { thread });
@@ -321,6 +316,24 @@ export class MockCodexRuntime implements CodexRuntime {
     return () => {
       this.emitter.off("notification", listener);
     };
+  }
+
+  seedExternalThread(descriptor?: Partial<CodexThreadDescriptor>): CodexThreadDescriptor {
+    const threadId = descriptor?.id ?? `thr_${randomUUID()}`;
+    const thread: CodexThreadDescriptor = {
+      id: threadId,
+      name: descriptor?.name ?? "Imported thread",
+      cwd: descriptor?.cwd ?? this.config.workspaceRoot,
+      updatedAt: descriptor?.updatedAt ?? nowIso(),
+      status: descriptor?.status ?? { type: "idle" },
+    };
+
+    this.threads.set(threadId, {
+      descriptor: thread,
+      turns: new Map(),
+    });
+
+    return thread;
   }
 
   private applyApprovalDecision(
