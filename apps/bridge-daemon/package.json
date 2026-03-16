@@ -1,0 +1,19 @@
+{
+  "name": "@codex-feishu-bridge/bridge-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local bridge daemon shell for the Codex and Feishu bridge project.",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@codex-feishu-bridge/protocol": "0.1.0",
+    "@codex-feishu-bridge/shared": "0.1.0"
+  },
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "node -e \"console.log('lint placeholder: bridge-daemon')\"",
+    "test": "tsx --test tests/*.test.ts"
+  }
+}

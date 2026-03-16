@@ -1,0 +1,56 @@
+name: ${COMPOSE_PROJECT_NAME:-codex-feishu-bridge}
+
+x-dev-base: &dev-base
+  build:
+    context: ..
+    dockerfile: docker/images/dev.Dockerfile
+    args:
+      NODE_IMAGE: ${NODE_IMAGE:-node:20-bookworm}
+  image: ${DEV_IMAGE_NAME:-codex-feishu-bridge-dev:local}
+  working_dir: ${WORKSPACE_PATH:-/workspace/codex-feishu-bridge}
+  environment:
+    WORKSPACE_PATH: ${WORKSPACE_PATH:-/workspace/codex-feishu-bridge}
+    BRIDGE_HOST: 0.0.0.0
+    BRIDGE_PORT: ${BRIDGE_PORT:-8787}
+    BRIDGE_WS_PATH: ${BRIDGE_WS_PATH:-/ws}
+    BRIDGE_STATE_DIR: ${BRIDGE_STATE_DIR:-.tmp}
+    BRIDGE_CODEX_HOME: ${BRIDGE_CODEX_HOME:-/workspace/codex-feishu-bridge/.tmp/codex-home}
+    CODEX_HOME: ${BRIDGE_CODEX_HOME:-/workspace/codex-feishu-bridge/.tmp/codex-home}
+    BRIDGE_UPLOADS_DIR: ${BRIDGE_UPLOADS_DIR:-/workspace/codex-feishu-bridge/.tmp/uploads}
+    CODEX_RUNTIME_BACKEND: ${CODEX_RUNTIME_BACKEND:-mock}
+    CODEX_APP_SERVER_BIN: ${CODEX_APP_SERVER_BIN:-codex}
+    CODEX_APP_SERVER_ARGS: ${CODEX_APP_SERVER_ARGS:-app-server}
+    PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    MOCK_AUTO_COMPLETE_LOGIN: ${MOCK_AUTO_COMPLETE_LOGIN:-true}
+  stdin_open: true
+  tty: true
+  volumes:
+    - type: bind
+      source: ..
+      target: ${WORKSPACE_PATH:-/workspace/codex-feishu-bridge}
+    - type: volume
+      source: workspace-node-modules
+      target: ${WORKSPACE_PATH:-/workspace/codex-feishu-bridge}/node_modules
+    - type: volume
+      source: npm-cache
+      target: /home/node/.npm
+    - type: bind
+      source: ../.tmp
+      target: /workspace/codex-feishu-bridge/.tmp
+
+services:
+  workspace-dev:
+    <<: *dev-base
+    container_name: ${COMPOSE_PROJECT_NAME:-codex-feishu-bridge}-workspace-dev
+    command: sleep infinity
+
+  bridge-runtime:
+    <<: *dev-base
+    container_name: ${COMPOSE_PROJECT_NAME:-codex-feishu-bridge}-bridge-runtime
+    command: npm run start -w @codex-feishu-bridge/bridge-daemon
+    ports:
+      - "${BRIDGE_PORT:-8787}:${BRIDGE_PORT:-8787}"
+
+volumes:
+  workspace-node-modules:
+  npm-cache:
