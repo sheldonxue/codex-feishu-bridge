@@ -7,7 +7,11 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@codex-feishu-bridge/protocol": "0.1.0",
-    "@codex-feishu-bridge/shared": "0.1.0"
+    "@codex-feishu-bridge/shared": "0.1.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14"
   },
   "scripts": {
     "start": "node dist/index.js",

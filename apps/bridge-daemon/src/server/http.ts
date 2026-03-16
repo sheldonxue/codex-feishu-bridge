@@ -1,14 +1,25 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import type { BridgeConfig, Logger } from "@codex-feishu-bridge/shared";
+import { WebSocketServer, type WebSocket } from "ws";
 
 import type { CodexRuntime } from "../runtime";
+import {
+  BridgeService,
+  type BridgeServiceSnapshot,
+  type CreateTaskRequest,
+  type TaskMessageRequest,
+  type UploadImageRequest,
+} from "../service/bridge-service";
 
 interface BridgeHttpServerOptions {
   config: BridgeConfig;
   logger: Logger;
   runtime: CodexRuntime;
+  service: BridgeService;
 }
+
+type JsonObject = Record<string, unknown>;
 
 async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
@@ -29,10 +40,33 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
   response.end(JSON.stringify(body));
 }
 
-export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.Server {
-  const { config, logger, runtime } = options;
+function sendWsJson(socket: WebSocket, body: unknown): void {
+  socket.send(JSON.stringify(body));
+}
 
-  return http.createServer(async (request, response) => {
+function snapshotPayload(snapshot: BridgeServiceSnapshot): JsonObject {
+  return {
+    type: "snapshot",
+    snapshot,
+  };
+}
+
+function eventPayload(event: unknown): JsonObject {
+  return {
+    type: "event",
+    event,
+  };
+}
+
+function notFound(response: ServerResponse): void {
+  sendJson(response, 404, { error: "not found" });
+}
+
+export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.Server {
+  const { config, logger, runtime, service } = options;
+  const websocketServer = new WebSocketServer({ noServer: true });
+
+  const server = http.createServer(async (request, response) => {
     try {
       if (!request.url || !request.method) {
         sendJson(response, 400, { error: "invalid request" });
@@ -40,6 +74,7 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
       }
 
       const url = new URL(request.url, `http://${request.headers.host ?? `${config.host}:${config.port}`}`);
+      const segments = url.pathname.split("/").filter(Boolean);
 
       if (request.method === "GET" && url.pathname === "/health") {
         sendJson(response, 200, {
@@ -48,6 +83,8 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
           codexHome: config.codexHome,
           uploadsDir: config.uploadsDir,
           publicBaseUrl: config.publicBaseUrl ?? null,
+          wsPath: config.wsPath,
+          tasks: service.listTasks().length,
         });
         return;
       }
@@ -76,7 +113,109 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
         return;
       }
 
-      sendJson(response, 404, { error: "not found" });
+      if (request.method === "GET" && url.pathname === "/tasks") {
+        sendJson(response, 200, {
+          tasks: service.listTasks(),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/tasks") {
+        const body = await readJsonBody<CreateTaskRequest>(request);
+        if (!body.title?.trim()) {
+          sendJson(response, 400, { error: "title is required" });
+          return;
+        }
+
+        const task = await service.createTask(body);
+        sendJson(response, 201, { task });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/tasks/import") {
+        const body = await readJsonBody<{ threadId?: string }>(request);
+        const tasks = await service.importThreads(body.threadId);
+        sendJson(response, 200, { tasks });
+        return;
+      }
+
+      if (segments[0] === "tasks" && segments[1]) {
+        const taskId = decodeURIComponent(segments[1]);
+
+        if (request.method === "GET" && segments.length === 2) {
+          const task = service.getTask(taskId);
+          if (!task) {
+            notFound(response);
+            return;
+          }
+
+          sendJson(response, 200, { task });
+          return;
+        }
+
+        if (request.method === "POST" && segments.length === 3 && segments[2] === "resume") {
+          const task = await service.resumeTask(taskId);
+          sendJson(response, 200, { task });
+          return;
+        }
+
+        if (request.method === "POST" && segments.length === 3 && segments[2] === "messages") {
+          const body = await readJsonBody<TaskMessageRequest>(request);
+          const task = await service.sendMessage(taskId, {
+            content: body.content ?? "",
+            imageAssetIds: body.imageAssetIds ?? [],
+          });
+          sendJson(response, 200, { task });
+          return;
+        }
+
+        if (request.method === "POST" && segments.length === 3 && segments[2] === "interrupt") {
+          const task = await service.interruptTask(taskId);
+          sendJson(response, 200, { task });
+          return;
+        }
+
+        if (request.method === "POST" && segments.length === 3 && segments[2] === "uploads") {
+          const body = await readJsonBody<UploadImageRequest>(request);
+          const result = await service.uploadTaskImage(taskId, body);
+          sendJson(response, 201, result);
+          return;
+        }
+
+        if (request.method === "POST" && segments.length === 4 && segments[2] === "feishu" && segments[3] === "bind") {
+          const body = await readJsonBody<{
+            chatId: string;
+            threadKey: string;
+            rootMessageId?: string;
+            webhookTenantKey?: string;
+          }>(request);
+          const task = await service.bindFeishuThread(taskId, body);
+          sendJson(response, 200, { task });
+          return;
+        }
+
+        if (
+          request.method === "POST" &&
+          segments.length === 5 &&
+          segments[2] === "approvals" &&
+          segments[4] === "resolve"
+        ) {
+          const body = await readJsonBody<{ decision?: "accept" | "acceptForSession" | "decline" | "cancel" }>(
+            request,
+          );
+          if (!body.decision) {
+            sendJson(response, 400, { error: "decision is required" });
+            return;
+          }
+
+          const requestId = decodeURIComponent(segments[3]);
+          const task = await service.resolveApproval(taskId, requestId, body.decision);
+          sendJson(response, 200, { task });
+          return;
+        }
+      }
+
+      notFound(response);
     } catch (error) {
       logger.error("bridge http request failed", error);
       sendJson(response, 500, {
@@ -84,4 +223,38 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
       });
     }
   });
+
+  const unsubscribe = service.subscribe(({ event, snapshot }) => {
+    for (const socket of websocketServer.clients) {
+      if (socket.readyState !== socket.OPEN) {
+        continue;
+      }
+
+      sendWsJson(socket, eventPayload(event));
+      sendWsJson(socket, snapshotPayload(snapshot));
+    }
+  });
+
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${config.host}:${config.port}`}`);
+    if (url.pathname !== config.wsPath) {
+      socket.destroy();
+      return;
+    }
+
+    websocketServer.handleUpgrade(request, socket, head, (websocket: WebSocket) => {
+      websocketServer.emit("connection", websocket, request);
+    });
+  });
+
+  websocketServer.on("connection", (socket: WebSocket) => {
+    sendWsJson(socket, snapshotPayload(service.getSnapshot()));
+  });
+
+  server.on("close", () => {
+    unsubscribe();
+    websocketServer.close();
+  });
+
+  return server;
 }

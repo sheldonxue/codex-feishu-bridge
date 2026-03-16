@@ -119,7 +119,7 @@ export class JsonRpcStdioClient {
       });
     });
 
-    this.child.stdin.write(`${payload}\n`, "utf8");
+    this.writePayload(payload);
 
     return result;
   }
@@ -135,7 +135,21 @@ export class JsonRpcStdioClient {
       params,
     });
 
-    this.child.stdin.write(`${payload}\n`, "utf8");
+    this.writePayload(payload);
+  }
+
+  respond(id: JsonRpcId | string, result: unknown): void {
+    if (!this.child) {
+      return;
+    }
+
+    const payload = JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      result,
+    });
+
+    this.writePayload(payload);
   }
 
   onNotification(listener: (notification: JsonRpcNotification) => void): () => void {
@@ -147,6 +161,10 @@ export class JsonRpcStdioClient {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  private writePayload(payload: string): void {
+    this.child?.stdin.write(`${payload}\n`, "utf8");
   }
 
   private handleLine(line: string): void {

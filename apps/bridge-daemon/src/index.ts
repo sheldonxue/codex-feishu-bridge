@@ -2,6 +2,7 @@ import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from 
 
 import { createBridgeHttpServer } from "./server/http";
 import { createCodexRuntime } from "./runtime";
+import { BridgeService } from "./service/bridge-service";
 
 export interface BridgeDaemonHandle {
   close(): Promise<void>;
@@ -17,7 +18,10 @@ export async function startBridgeDaemon(): Promise<BridgeDaemonHandle> {
   const runtime = createCodexRuntime(config, logger);
   await runtime.start();
 
-  const server = createBridgeHttpServer({ config, logger, runtime });
+  const service = new BridgeService({ config, logger, runtime });
+  await service.initialize();
+
+  const server = createBridgeHttpServer({ config, logger, runtime, service });
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -42,6 +46,7 @@ export async function startBridgeDaemon(): Promise<BridgeDaemonHandle> {
           resolve();
         });
       });
+      await service.dispose();
       await runtime.dispose();
     },
   };
