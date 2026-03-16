@@ -7,6 +7,7 @@
 - Update `README.md`, `status.md`, and `log.md`
 - Validation: doc consistency checks and repo self-checks
 - Commit boundary: `📝 docs: align repository with cli-first codex bridge plan`
+- Status: completed
 
 ## Phase 1: Runtime and Auth
 
@@ -15,6 +16,7 @@
 - Mount a shared Codex home path in Docker
 - Validation: daemon health plus mockable auth flow tests
 - Commit boundary: `✨ feat: add codex app-server auth runtime`
+- Status: completed
 
 ## Phase 2: Protocol and Task Model
 
@@ -22,6 +24,7 @@
 - Lock `bridge-managed` and `manual-import` task modes
 - Validation: protocol unit tests and serialization checks
 - Commit boundary: `✨ feat: define bridge task and event protocol`
+- Status: completed
 
 ## Phase 3: Daemon Core
 
@@ -29,6 +32,7 @@
 - Expose HTTP and WebSocket endpoints
 - Validation: integration tests for task lifecycle and event streaming
 - Commit boundary: `✨ feat: add daemon session orchestration and event streaming`
+- Status: completed
 
 ## Phase 4: VSCode Frontend
 
@@ -36,6 +40,7 @@
 - Add desktop image input and daemon integration
 - Validation: extension compile checks and integration tests against a mock daemon
 - Commit boundary: `✨ feat: add vscode task dashboard and multimodal input`
+- Status: completed
 
 ## Phase 5: Feishu Bridge
 
@@ -43,6 +48,7 @@
 - Route `reply`, `steer`, `interrupt`, `approve`, `cancel`, and `retry`
 - Validation: webhook, dedupe, and thread routing tests
 - Commit boundary: `✨ feat: add feishu threaded task bridge`
+- Status: completed
 
 ## Phase 6: Manual CLI Import
 
@@ -50,6 +56,7 @@
 - Normalize them into bridge task records
 - Validation: import and resume tests using persisted mock thread data
 - Commit boundary: `✨ feat: support manual codex thread import and resume`
+- Status: completed
 
 ## Phase 7: Hardening
 
@@ -57,9 +64,11 @@
 - Add minimal diagnostics and recovery hints
 - Validation: failure-mode tests and restart recovery checks
 - Commit boundary: `🐛 fix: harden task recovery and feishu action replay`
+- Status: completed
 
-## Immediate Next Actions
+## Follow-Up Backlog
 
-- Update docs and commit policy first
-- Install dependencies inside Docker
-- Implement runtime/auth and protocol foundations
+- Validate `stdio` mode against a real logged-in `codex app-server`
+- Decide whether to promote the CLI wrapper into a dedicated `apps/` package
+- Add explicit diagnostics for Feishu delivery failures and tunnel health
+- Add live-user documentation for loading the VSCode extension in development mode
