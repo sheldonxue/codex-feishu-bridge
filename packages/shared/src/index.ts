@@ -23,6 +23,12 @@ export interface BridgeConfig {
   codexArgs: string[];
   publicBaseUrl?: string;
   mockAutoCompleteLogin: boolean;
+  feishuBaseUrl: string;
+  feishuAppId?: string;
+  feishuAppSecret?: string;
+  feishuVerificationToken?: string;
+  feishuEncryptKey?: string;
+  feishuDefaultChatId?: string;
 }
 
 export function createConsoleLogger(prefix = "bridge"): Logger {
@@ -88,6 +94,12 @@ export function loadBridgeConfig(
       .filter(Boolean),
     publicBaseUrl: env.PUBLIC_BASE_URL,
     mockAutoCompleteLogin: parseBoolean(env.MOCK_AUTO_COMPLETE_LOGIN, true),
+    feishuBaseUrl: env.FEISHU_BASE_URL ?? "https://open.feishu.cn",
+    feishuAppId: env.FEISHU_APP_ID,
+    feishuAppSecret: env.FEISHU_APP_SECRET,
+    feishuVerificationToken: env.FEISHU_VERIFICATION_TOKEN,
+    feishuEncryptKey: env.FEISHU_ENCRYPT_KEY,
+    feishuDefaultChatId: env.FEISHU_DEFAULT_CHAT_ID,
   };
 }
 

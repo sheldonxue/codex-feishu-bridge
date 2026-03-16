@@ -3,6 +3,7 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { BridgeConfig, Logger } from "@codex-feishu-bridge/shared";
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { FeishuBridge } from "../feishu/bridge";
 import type { CodexRuntime } from "../runtime";
 import {
   BridgeService,
@@ -14,6 +15,7 @@ import {
 
 interface BridgeHttpServerOptions {
   config: BridgeConfig;
+  feishu?: FeishuBridge;
   logger: Logger;
   runtime: CodexRuntime;
   service: BridgeService;
@@ -21,17 +23,26 @@ interface BridgeHttpServerOptions {
 
 type JsonObject = Record<string, unknown>;
 
-async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
+async function readBodyText(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     chunks.push(Buffer.from(chunk));
   }
 
   if (chunks.length === 0) {
+    return "";
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
+  const body = await readBodyText(request);
+  if (!body) {
     return {} as T;
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
+  return JSON.parse(body) as T;
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
@@ -63,7 +74,7 @@ function notFound(response: ServerResponse): void {
 }
 
 export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.Server {
-  const { config, logger, runtime, service } = options;
+  const { config, feishu, logger, runtime, service } = options;
   const websocketServer = new WebSocketServer({ noServer: true });
 
   const server = http.createServer(async (request, response) => {
@@ -85,6 +96,7 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
           publicBaseUrl: config.publicBaseUrl ?? null,
           wsPath: config.wsPath,
           tasks: service.listTasks().length,
+          feishuEnabled: feishu?.enabled ?? false,
         });
         return;
       }
@@ -136,6 +148,22 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
         const body = await readJsonBody<{ threadId?: string }>(request);
         const tasks = await service.importThreads(body.threadId);
         sendJson(response, 200, { tasks });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/feishu/webhook") {
+        if (!feishu?.enabled) {
+          sendJson(response, 503, { error: "feishu bridge is not configured" });
+          return;
+        }
+
+        const rawBody = await readBodyText(request);
+        const result = await feishu.handleWebhook(rawBody, {
+          signature: request.headers["x-lark-signature"]?.toString(),
+          timestamp: request.headers["x-lark-request-timestamp"]?.toString(),
+          nonce: request.headers["x-lark-request-nonce"]?.toString(),
+        });
+        sendJson(response, result.statusCode, result.body);
         return;
       }
 

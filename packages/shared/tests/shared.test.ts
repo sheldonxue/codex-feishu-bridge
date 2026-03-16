@@ -27,4 +27,26 @@ describe("shared config helpers", () => {
       "/data/codex-home",
     );
   });
+
+  it("loads feishu bridge settings when present", () => {
+    const config = loadBridgeConfig(
+      {
+        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
+        FEISHU_BASE_URL: "https://open.feishu.cn",
+        FEISHU_APP_ID: "cli-app-id",
+        FEISHU_APP_SECRET: "cli-app-secret",
+        FEISHU_VERIFICATION_TOKEN: "verify-token",
+        FEISHU_ENCRYPT_KEY: "encrypt-key",
+        FEISHU_DEFAULT_CHAT_ID: "oc_xxx",
+      },
+      "/workspace/codex-feishu-bridge",
+    );
+
+    assert.equal(config.feishuBaseUrl, "https://open.feishu.cn");
+    assert.equal(config.feishuAppId, "cli-app-id");
+    assert.equal(config.feishuAppSecret, "cli-app-secret");
+    assert.equal(config.feishuVerificationToken, "verify-token");
+    assert.equal(config.feishuEncryptKey, "encrypt-key");
+    assert.equal(config.feishuDefaultChatId, "oc_xxx");
+  });
 });
