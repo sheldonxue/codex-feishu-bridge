@@ -82,6 +82,9 @@ It is a live-validation pass against the real runtime, real Feishu ingress, and 
 ### Runtime and Auth Validation
 
 - Run `bridge-daemon` with `CODEX_RUNTIME_BACKEND=stdio`.
+- Current progress in this slice:
+  - daemon can run in Docker against a host-mounted Codex binary directory and host Codex home
+  - `/health`, `/auth/account`, `/auth/rate-limits`, and task reconciliation were verified against a real ChatGPT login
 - Validate against a real logged-in `codex app-server`:
   - `account/login/start`
   - `account/read`

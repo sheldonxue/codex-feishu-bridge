@@ -14,6 +14,8 @@
 - `codex app-server` 由 `bridge-daemon` 管理
 - 认证、线程、turn、审批和事件流都从这里读取和写入
 - 共享的 Codex home 用于保存登录态和线程存储
+- Live validation can mount a host Codex binary directory into `/opt/host-codex-bin`
+- Live validation can mount a host Codex home into `/codex-home` to reuse an existing ChatGPT login state
 
 ### Bridge Daemon
 
@@ -115,6 +117,8 @@
 - Compose services stay `workspace-dev` and `bridge-runtime`
 - Devcontainer default workspace stays `/workspace/codex-feishu-bridge`
 - `bridge-runtime` mounts a shared Codex home path and an uploads directory
+- `bridge-runtime` can also mount `${HOST_CODEX_HOME}` to `/codex-home` and `${HOST_CODEX_BIN_DIR}` to `/opt/host-codex-bin`
+- Live `stdio` validation should set `BRIDGE_CODEX_HOME=/codex-home`, `CODEX_RUNTIME_BACKEND=stdio`, and `CODEX_APP_SERVER_BIN=/opt/host-codex-bin/codex`
 - Host-native Node and TypeScript are optional; container is the default path
 
 ## 代码规范

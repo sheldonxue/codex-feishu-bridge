@@ -26,3 +26,14 @@
 - Merged the historical root `PLAN.md` draft into `docs/plan.md` and removed the extra root plan entry point.
 - Locked `docs/plan.md` as the only execution-plan source for future agents.
 - Marked the next iteration as live validation of real `stdio codex app-server`, real Feishu webhook traffic, and real VSCode extension loading.
+- Aligned the `stdio` runtime adapter to the current app-server schema:
+  - `thread/list` now reads `data`
+  - thread timestamps are normalized from Unix seconds to ISO strings
+  - object-shaped thread status values now map to bridge task states
+  - `turn/steer` now sends `expectedTurnId`
+- Added optional Docker mounts for a host Codex binary directory and host Codex home so live validation can stay Docker-first.
+- Verified a live daemon probe in Docker against the host ChatGPT-backed Codex state:
+  - `/health` returned `backend=stdio` and `initialized=true`
+  - `/auth/account` returned the real ChatGPT account snapshot
+  - `/auth/rate-limits` returned real plus-plan rate-limit data
+  - `/tasks` reconciled persisted real-thread state from the shared Codex home

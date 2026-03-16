@@ -43,6 +43,13 @@ x-dev-base: &dev-base
     - type: bind
       source: ../.tmp
       target: /workspace/codex-feishu-bridge/.tmp
+    - type: bind
+      source: ${HOST_CODEX_HOME:-../.tmp/codex-home}
+      target: /codex-home
+    - type: bind
+      source: ${HOST_CODEX_BIN_DIR:-/tmp}
+      target: /opt/host-codex-bin
+      read_only: true
 
 services:
   workspace-dev:

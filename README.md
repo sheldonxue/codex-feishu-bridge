@@ -72,8 +72,23 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run bridge:cli -- resume <task-id
 Use this sequence for the next end-to-end pass:
 
 1. Start `bridge-runtime` with `CODEX_RUNTIME_BACKEND=stdio`.
-2. Point the daemon at a real Codex home if you want to reuse an existing ChatGPT login state.
-3. Verify auth endpoints before creating tasks:
+2. If you want Docker to reuse a real host login state and host `codex` binary, set:
+
+```bash
+export HOST_CODEX_HOME=/home/you/.codex
+export HOST_CODEX_BIN_DIR=/path/to/codex-bin-dir
+export BRIDGE_CODEX_HOME=/codex-home
+export CODEX_APP_SERVER_BIN=/opt/host-codex-bin/codex
+export CODEX_RUNTIME_BACKEND=stdio
+```
+
+3. Start the runtime container with those overrides in scope:
+
+```bash
+docker compose -f docker/compose.yaml --env-file docker/.env.example up -d bridge-runtime
+```
+
+4. Verify auth endpoints before creating tasks:
 
 ```bash
 curl http://127.0.0.1:8787/health
@@ -81,9 +96,9 @@ curl http://127.0.0.1:8787/auth/account
 curl http://127.0.0.1:8787/auth/rate-limits
 ```
 
-4. Load `apps/vscode-extension` in a VSCode Extension Development Host and connect it to the local daemon.
-5. Create or resume a task from the extension and verify task state, diffs, approvals, and uploads against the live daemon.
-6. Expose `/feishu/webhook` with a user-provided public URL and validate threaded message creation plus reply routing from a real Feishu chat.
+5. Load `apps/vscode-extension` in a VSCode Extension Development Host and connect it to the local daemon.
+6. Create or resume a task from the extension and verify task state, diffs, approvals, and uploads against the live daemon.
+7. Expose `/feishu/webhook` with a user-provided public URL and validate threaded message creation plus reply routing from a real Feishu chat.
 
 ## Runtime Notes
 
@@ -94,7 +109,8 @@ curl http://127.0.0.1:8787/auth/rate-limits
 - The daemon now exposes `/tasks`, `/tasks/import`, `/tasks/:id/resume`, `/tasks/:id/messages`, `/tasks/:id/uploads`, `/tasks/:id/approvals/*`, and `/feishu/webhook`.
 - The daemon persists task state under `.tmp/` and reconciles recovered tasks on restart.
 - Live runtime validation should prefer `CODEX_RUNTIME_BACKEND=stdio` so the daemon manages the real `codex app-server` process directly.
-- Reusing a host login state may require mounting the host Codex home into the runtime container instead of using the repo-local default.
+- Reusing a host login state in Docker uses `HOST_CODEX_HOME -> /codex-home`.
+- Reusing a host Codex executable in Docker uses `HOST_CODEX_BIN_DIR -> /opt/host-codex-bin`.
 
 ## Feishu Notes
 

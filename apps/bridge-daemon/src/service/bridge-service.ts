@@ -93,14 +93,30 @@ function sanitizeFileName(fileName: string): string {
 }
 
 function mapRuntimeStatus(status: unknown): TaskStatus {
+  const normalizedStatus =
+    status && typeof status === "object"
+      ? (status as {
+          type?: string;
+          activeFlags?: string[];
+        })
+      : null;
   const value =
-    typeof status === "string"
-      ? status
-      : status && typeof status === "object" && "type" in status
-        ? String((status as { type?: string }).type ?? "idle")
-        : "idle";
+    typeof status === "string" ? status : normalizedStatus?.type ? String(normalizedStatus.type) : "idle";
+
+  if (value === "active") {
+    const activeFlags = normalizedStatus?.activeFlags ?? [];
+    if (activeFlags.includes("waitingOnApproval")) {
+      return "awaiting-approval";
+    }
+    if (activeFlags.includes("waitingOnUserInput")) {
+      return "blocked";
+    }
+    return "running";
+  }
 
   switch (value) {
+    case "notLoaded":
+      return "idle";
     case "queued":
       return "queued";
     case "running":
@@ -113,6 +129,7 @@ function mapRuntimeStatus(status: unknown): TaskStatus {
       return "blocked";
     case "completed":
       return "completed";
+    case "systemError":
     case "failed":
       return "failed";
     case "interrupted":
@@ -342,6 +359,9 @@ export class BridgeService {
 
   async interruptTask(taskId: string): Promise<BridgeTask> {
     const task = this.requireTask(taskId);
+    if (!task.activeTurnId) {
+      throw new Error(`Task ${taskId} has no active turn to interrupt.`);
+    }
     await this.options.runtime.interruptTurn({
       threadId: task.threadId,
       turnId: task.activeTurnId,
@@ -492,7 +512,7 @@ export class BridgeService {
       }
       case "turn/started": {
         const turn = (notification.params as { turn?: CodexTurnDescriptor }).turn;
-        if (!turn) {
+        if (!turn?.threadId) {
           return;
         }
         const task = this.tasks.get(turn.threadId);
@@ -511,7 +531,7 @@ export class BridgeService {
       }
       case "turn/completed": {
         const turn = (notification.params as { turn?: CodexTurnDescriptor }).turn;
-        if (!turn) {
+        if (!turn?.threadId) {
           return;
         }
         const task = this.tasks.get(turn.threadId);

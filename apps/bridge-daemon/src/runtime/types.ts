@@ -66,7 +66,7 @@ export type CodexThreadItem =
 
 export interface CodexTurnDescriptor {
   id: string;
-  threadId: string;
+  threadId?: string;
   status: CodexTurnStatus;
   items?: CodexThreadItem[];
   error?: {
@@ -116,6 +116,7 @@ export interface CodexThreadDescriptor {
   id: string;
   name?: string | null;
   cwd?: string | null;
+  createdAt?: string;
   updatedAt?: string;
   status?: unknown;
 }
