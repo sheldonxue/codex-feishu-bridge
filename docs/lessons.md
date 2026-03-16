@@ -10,3 +10,4 @@
 - State-file writes must be serialized; concurrent async writes can silently roll the daemon back to an older snapshot and break restart recovery.
 - Inside `workspace-dev`, local daemon access should use the Compose service name `bridge-runtime`, not host loopback, for CLI validation.
 - Feishu bridge tests need to keep the fetch stub alive until all async task-event replies are drained, or they will leak real network calls after the assertion phase.
+- Before splitting work across multiple agent worktrees, create a single ownership and mention document; otherwise agents drift into the same shared docs and lose clean commit boundaries.

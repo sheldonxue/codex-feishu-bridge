@@ -15,6 +15,7 @@ Before changing code or docs, agents must read these files in order:
 3. `docs/log.md`
 4. `docs/architecture.md`
 5. `docs/agents.md`
+6. `docs/worktree-agents.md` when the task is part of a multi-agent or multi-worktree effort
 
 ## Working Rules
 
@@ -25,6 +26,7 @@ Before changing code or docs, agents must read these files in order:
 - Update `docs/status.md` whenever the implementation state changes materially.
 - Record architecture decisions in both `docs/architecture.md` and `docs/log.md`.
 - Prefer deleting weak or misleading compatibility paths over keeping them alive.
+- In multi-agent mode, use `docs/worktree-agents.md` as the coordination source of truth for ownership, mentions, and handoffs.
 
 ## Documentation Update Policy
 
@@ -33,6 +35,7 @@ Before changing code or docs, agents must read these files in order:
 - `docs/log.md`: append dated entries only.
 - `docs/lessons.md`: append dated lessons only.
 - `docs/agents.md`: keep operational instructions current for future agents.
+- `docs/worktree-agents.md`: keep ownership, mention templates, and bootstrap prompts current for multi-agent work.
 
 ## Commit Policy
 

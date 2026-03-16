@@ -41,3 +41,6 @@
 - Added a checked-in `.vscode/launch.json` so the extension can be launched in an Extension Development Host without ad hoc setup.
 - Documented the live runtime helper and the VSCode launch workflow in `README.md`.
 - Verified the helper against the mock daemon in Docker for both read-only probing and no-prompt thread creation plus resume.
+- Added `docs/worktree-agents.md` as the multi-agent worktree coordination source of truth.
+- Split the remaining live-validation phase into recommended workstreams for `@coordinator-agent`, `@runtime-agent`, `@feishu-agent`, `@desktop-agent`, and `@qa-agent`.
+- Added project-specific bootstrap prompts so new agents can join without re-deriving repository rules.

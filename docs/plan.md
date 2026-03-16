@@ -78,6 +78,7 @@ The historical root `PLAN.md` draft has been absorbed here and removed to avoid 
 
 The next iteration is not feature expansion.
 It is a live-validation pass against the real runtime, real Feishu ingress, and real desktop loading path.
+The recommended execution mode for this phase is parallel work across dedicated worktrees coordinated through `docs/worktree-agents.md`.
 
 ### Runtime and Auth Validation
 
@@ -108,6 +109,7 @@ It is a live-validation pass against the real runtime, real Feishu ingress, and 
 ### Feishu Live Validation
 
 - Validate with real `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, `FEISHU_VERIFICATION_TOKEN`, `FEISHU_ENCRYPT_KEY`, and `FEISHU_DEFAULT_CHAT_ID`.
+- Recommended owner: `@feishu-agent`
 - Validate via a user-provided public callback URL:
   - new task sends the root message
   - later updates stay in the same reply chain
@@ -120,6 +122,7 @@ It is a live-validation pass against the real runtime, real Feishu ingress, and 
 ### Desktop Live Validation
 
 - Load `apps/vscode-extension` in VSCode development mode against the real daemon.
+- Recommended owner: `@desktop-agent`
 - Current progress in this slice:
   - a checked-in `.vscode/launch.json` is available for the Extension Development Host
   - `README.md` now includes the runtime helper and the extension launch workflow
@@ -135,6 +138,13 @@ It is a live-validation pass against the real runtime, real Feishu ingress, and 
 - Keep `scripts/bridge-cli.mjs` as a script in this iteration; do not promote it into its own `apps/` package yet.
 - Expected docs commit boundary: `📝 docs: add live validation workflow for vscode and daemon`.
 - Possible polish commit if small behavior fixes are required: `🐛 fix: polish vscode bridge behavior against live daemon`.
+
+### Coordination and QA
+
+- Recommended owners:
+  - `@coordinator-agent` for cross-agent planning, shared docs, and merge readiness
+  - `@qa-agent` for validation scripts, acceptance matrix, and execution reports
+- Keep ownership, blockers, and handoffs in `docs/worktree-agents.md`.
 
 ## Acceptance and Exit Criteria
 

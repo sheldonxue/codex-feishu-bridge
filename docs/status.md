@@ -5,7 +5,7 @@
 - Date: 2026-03-17
 - Repository phase: v1 local workflow implemented, runtime live validation started
 - Runtime mode: CLI-first Codex runtime with Docker-first development
-- Implementation state: daemon, VSCode frontend, Feishu bridge, manual import, and recovery paths are implemented; real `stdio` runtime alignment is now in place and live ingress validation remains open
+- Implementation state: daemon, VSCode frontend, Feishu bridge, manual import, and recovery paths are implemented; real `stdio` runtime alignment is now in place, live ingress validation remains open, and multi-agent worktree coordination docs are ready
 
 ## Completed
 
@@ -26,6 +26,7 @@
 - Added a read-only live runtime validation script plus an opt-in no-prompt thread creation check
 - Added a checked-in VSCode Extension Development Host launch configuration for the desktop frontend
 - Verified the live runtime helper in Docker against the mock daemon in both read-only and create-thread modes
+- Added a multi-agent worktree coordination guide with role boundaries, mention rules, and bootstrap prompts
 
 ## Implemented But Not Yet Live-Validated
 
@@ -39,6 +40,7 @@
 - Revalidate Feishu root-message creation, reply routing, and duplicate suppression against live webhook traffic
 - Finish the daemon-driven live thread and turn control pass on top of the now-aligned `stdio` adapter
 - Run the documented Extension Development Host pass for the VSCode frontend
+- Execute the remaining live-validation work through dedicated agent worktrees coordinated via `docs/worktree-agents.md`
 
 ## Deferred Decisions
 
