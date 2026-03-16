@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 
 import type { BridgeTask } from "@codex-feishu-bridge/protocol";
 
+import { diffSummaryText } from "../core/diff-summary";
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -21,7 +23,7 @@ function renderTask(task: BridgeTask): string {
   const diffs = task.diffs
     .map(
       (diff) =>
-        `<details><summary>${escapeHtml(diff.path)} - ${escapeHtml(diff.summary)}</summary><pre>${escapeHtml(diff.patch ?? "")}</pre></details>`,
+        `<details><summary>${escapeHtml(diff.path)} - ${escapeHtml(diffSummaryText(diff.summary))}</summary><pre>${escapeHtml(diff.patch ?? "")}</pre></details>`,
     )
     .join("");
   const conversation = task.conversation

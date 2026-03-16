@@ -1,5 +1,4 @@
 import type { BridgeTask, QueuedApproval } from "@codex-feishu-bridge/protocol";
-import WebSocket from "ws";
 
 import type { DaemonSnapshot } from "./task-model";
 
@@ -31,6 +30,12 @@ export interface SocketSnapshotFrame {
 }
 
 export type BridgeSocketFrame = SocketEventFrame | SocketSnapshotFrame;
+
+export interface BridgeSocket {
+  close(): void;
+  addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
+  addEventListener(type: "close" | "error", listener: () => void): void;
+}
 
 interface CreateTaskPayload {
   title: string;
@@ -67,6 +72,26 @@ export function buildWebSocketUrl(baseUrl: string, wsPath: string): string {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+async function decodeSocketData(data: unknown): Promise<string | null> {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString("utf8");
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
+  }
+
+  if (typeof Blob !== "undefined" && data instanceof Blob) {
+    return data.text();
+  }
+
+  return null;
 }
 
 export class BridgeClient {
@@ -164,19 +189,28 @@ export class BridgeClient {
     });
   }
 
-  connect(onFrame: (frame: BridgeSocketFrame) => void, onClose: () => void): WebSocket {
-    const socket = new WebSocket(buildWebSocketUrl(this.config.baseUrl, this.config.wsPath));
-    socket.on("message", (raw) => {
+  connect(onFrame: (frame: BridgeSocketFrame) => void, onClose: () => void): BridgeSocket {
+    if (typeof WebSocket === "undefined") {
+      throw new Error("WebSocket is not available in this extension host.");
+    }
+
+    const socket = new WebSocket(buildWebSocketUrl(this.config.baseUrl, this.config.wsPath)) as BridgeSocket;
+    socket.addEventListener("message", async (event) => {
       try {
-        onFrame(JSON.parse(raw.toString()) as BridgeSocketFrame);
+        const raw = await decodeSocketData(event.data);
+        if (!raw) {
+          return;
+        }
+
+        onFrame(JSON.parse(raw) as BridgeSocketFrame);
       } catch {
         // Ignore malformed daemon frames and keep the extension alive.
       }
     });
-    socket.on("close", () => {
+    socket.addEventListener("close", () => {
       onClose();
     });
-    socket.on("error", () => {
+    socket.addEventListener("error", () => {
       onClose();
     });
     return socket;

@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import type { BridgeTask, QueuedApproval } from "@codex-feishu-bridge/protocol";
 
 import { BridgeClient } from "./core/bridge-client";
+import { diffSummaryText } from "./core/diff-summary";
 import { TaskStore } from "./core/task-store";
 import { openStatusPanel, openTaskDetailPanel } from "./panels/task-detail-panel";
 import { TaskTreeItem, TaskTreeProvider } from "./providers/task-tree";
@@ -12,6 +13,29 @@ import { TaskTreeItem, TaskTreeProvider } from "./providers/task-tree";
 interface ExtensionServices {
   client: BridgeClient;
   store: TaskStore;
+}
+
+interface DevCreateTaskRequest {
+  title: string;
+  workspaceRoot?: string;
+  prompt?: string;
+}
+
+interface DevSendMessageRequest {
+  taskId: string;
+  content: string;
+  imagePaths?: string[];
+}
+
+interface DevResolveApprovalRequest {
+  taskId: string;
+  requestId: string;
+  decision: "accept" | "decline" | "cancel";
+}
+
+interface DevOpenDiffRequest {
+  taskId: string;
+  diffPath?: string;
 }
 
 function bridgeConfiguration(): { baseUrl: string; wsPath: string } {
@@ -112,6 +136,89 @@ async function uploadImages(services: ExtensionServices, task: BridgeTask): Prom
   return assetIds;
 }
 
+async function uploadImagePaths(services: ExtensionServices, taskId: string, imagePaths: string[]): Promise<string[]> {
+  if (imagePaths.length === 0) {
+    return [];
+  }
+
+  const assetIds: string[] = [];
+  for (const imagePath of imagePaths) {
+    const target = vscode.Uri.file(imagePath);
+    const content = await vscode.workspace.fs.readFile(target);
+    const upload = await services.client.uploadTaskImage(taskId, {
+      fileName: path.basename(target.fsPath),
+      mimeType: mimeTypeForPath(target.fsPath),
+      contentBase64: Buffer.from(content).toString("base64"),
+    });
+    assetIds.push(upload.asset.assetId);
+  }
+
+  await services.store.refresh();
+  return assetIds;
+}
+
+function selectTaskDiff(task: BridgeTask, diffPath?: string): BridgeTask["diffs"][number] {
+  const selectedDiff = diffPath ? task.diffs.find((candidate) => candidate.path === diffPath) : task.diffs[0];
+  if (!selectedDiff) {
+    throw new Error(diffPath ? `No diff was found for ${diffPath}.` : `No diff data is available for ${task.title}.`);
+  }
+
+  return selectedDiff;
+}
+
+async function openTaskDiff(task: BridgeTask, diffPath?: string): Promise<BridgeTask["diffs"][number]> {
+  const selectedDiff = selectTaskDiff(task, diffPath);
+  const document = await vscode.workspace.openTextDocument({
+    content: selectedDiff.patch ?? `# ${selectedDiff.path}\n\n${selectedDiff.summary}`,
+    language: "diff",
+  });
+  await vscode.window.showTextDocument(document, { preview: false });
+  return selectedDiff;
+}
+
+async function sendTaskMessage(
+  services: ExtensionServices,
+  taskId: string,
+  payload: { content: string; imagePaths?: string[]; imageAssetIds?: string[] },
+): Promise<BridgeTask> {
+  const imageAssetIds = payload.imageAssetIds ?? (await uploadImagePaths(services, taskId, payload.imagePaths ?? []));
+  await services.client.sendMessage(taskId, {
+    content: payload.content,
+    imageAssetIds,
+  });
+  await services.store.refresh();
+  return services.client.getTask(taskId);
+}
+
+async function resolveTaskApproval(
+  services: ExtensionServices,
+  request: DevResolveApprovalRequest,
+): Promise<BridgeTask> {
+  const task = await services.client.getTask(request.taskId);
+  const approval = task.pendingApprovals.find((entry) => entry.requestId === request.requestId);
+  if (!approval) {
+    throw new Error(`No approval was found for request ${request.requestId}.`);
+  }
+
+  await services.client.resolveApproval(request.taskId, approval, request.decision);
+  await services.store.refresh();
+  return services.client.getTask(request.taskId);
+}
+
+function serializeTaskTree(treeProvider: TaskTreeProvider): Array<{
+  taskId: string;
+  title: string;
+  status: BridgeTask["status"];
+  description?: string | boolean;
+}> {
+  return treeProvider.getChildren().map((item) => ({
+    taskId: item.task.taskId,
+    title: item.task.title,
+    status: item.task.status,
+    description: item.description,
+  }));
+}
+
 async function withTaskMessage(
   services: ExtensionServices,
   task: BridgeTask,
@@ -127,12 +234,10 @@ async function withTaskMessage(
     return;
   }
 
-  const imageAssetIds = await uploadImages(services, task);
-  await services.client.sendMessage(task.taskId, {
+  await sendTaskMessage(services, task.taskId, {
     content,
-    imageAssetIds,
+    imageAssetIds: await uploadImages(services, task),
   });
-  await services.store.refresh();
 }
 
 async function approveByKind(
@@ -322,7 +427,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               await vscode.window.showQuickPick(
                 task.diffs.map((diff) => ({
                   label: diff.path,
-                  description: diff.summary,
+                  description: diffSummaryText(diff.summary),
                   diff,
                 })),
                 { placeHolder: "Select a diff to open" },
@@ -359,6 +464,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }),
   );
+
+  if (context.extensionMode !== vscode.ExtensionMode.Production) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand("codexFeishuBridge.dev.getSnapshot", async () => {
+        await services.store.refresh();
+        return services.store.getSnapshot();
+      }),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.getTaskTree", async () => {
+        await services.store.refresh();
+        return serializeTaskTree(treeProvider);
+      }),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.createTask", async (request: DevCreateTaskRequest) => {
+        const task = await services.client.createTask({
+          title: request.title,
+          workspaceRoot: request.workspaceRoot,
+          prompt: request.prompt,
+        });
+        await services.store.refresh();
+        return services.client.getTask(task.taskId);
+      }),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.sendMessage", async (request: DevSendMessageRequest) =>
+        sendTaskMessage(services, request.taskId, {
+          content: request.content,
+          imagePaths: request.imagePaths,
+        })),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.resolveApproval", async (request: DevResolveApprovalRequest) =>
+        resolveTaskApproval(services, request)),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.openTaskDetails", async (taskId: string) => {
+        const task = await services.client.getTask(taskId);
+        openTaskDetailPanel(task);
+        return {
+          taskId: task.taskId,
+          title: task.title,
+        };
+      }),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.openDiff", async (request: DevOpenDiffRequest) => {
+        const task = await services.client.getTask(request.taskId);
+        const diff = await openTaskDiff(task, request.diffPath);
+        return {
+          path: diff.path,
+          summary: diffSummaryText(diff.summary),
+        };
+      }),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.openStatus", async () => {
+        await services.store.refresh();
+        const snapshot = services.store.getSnapshot();
+        openStatusPanel({
+          account: snapshot.account,
+          rateLimits: snapshot.rateLimits,
+          connection: snapshot.connection,
+          taskCount: snapshot.tasks.length,
+        });
+        return {
+          connection: snapshot.connection,
+          taskCount: snapshot.tasks.length,
+        };
+      }),
+    );
+  }
 }
 
 export function deactivate(): void {

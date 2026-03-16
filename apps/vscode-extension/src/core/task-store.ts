@@ -1,15 +1,14 @@
 import { EventEmitter } from "node:events";
-import type WebSocket from "ws";
 
 import type { BridgeTask } from "@codex-feishu-bridge/protocol";
 
-import { BridgeClient, type BridgeSocketFrame } from "./bridge-client";
+import { BridgeClient, type BridgeSocket, type BridgeSocketFrame } from "./bridge-client";
 import { applyDaemonSnapshot, createEmptySnapshot, type ExtensionSnapshot } from "./task-model";
 
 export class TaskStore {
   private readonly emitter = new EventEmitter();
   private snapshot: ExtensionSnapshot = createEmptySnapshot();
-  private socket: WebSocket | null = null;
+  private socket: BridgeSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private disposed = false;
 
