@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 
@@ -29,12 +30,13 @@ async function waitFor(check: () => boolean, message: string): Promise<void> {
 describe("feishu long connection ingress", () => {
   it("routes im.message.receive_v1 events from long connection with dedupe", async () => {
     const namespace = randomUUID();
+    const workspaceRoot = process.cwd();
     const config = loadBridgeConfig(
       {
-        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
+        WORKSPACE_PATH: workspaceRoot,
+        BRIDGE_STATE_DIR: path.join(".tmp", namespace, "state"),
+        CODEX_HOME: path.join(".tmp", namespace, "codex-home"),
+        BRIDGE_UPLOADS_DIR: path.join(".tmp", namespace, "uploads"),
         CODEX_RUNTIME_BACKEND: "mock",
         FEISHU_BASE_URL: "https://open.feishu.cn",
         FEISHU_APP_ID: "cli-app-id",
@@ -43,7 +45,7 @@ describe("feishu long connection ingress", () => {
         FEISHU_VERIFICATION_TOKEN: "",
         FEISHU_ENCRYPT_KEY: "",
       },
-      "/workspace/codex-feishu-bridge",
+      workspaceRoot,
     );
     const logger = createConsoleLogger("feishu-long-connection-test");
 

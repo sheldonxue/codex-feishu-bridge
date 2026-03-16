@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
@@ -78,14 +79,15 @@ async function createHarness(
   envOverrides: Record<string, string> = {},
 ): Promise<FeishuTestHarness> {
   const namespace = randomUUID();
+  const workspaceRoot = process.cwd();
   const config = loadBridgeConfig(
     {
-      WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
+      WORKSPACE_PATH: workspaceRoot,
       BRIDGE_PORT: "0",
       CODEX_RUNTIME_BACKEND: "mock",
-      BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-      CODEX_HOME: `.tmp/${namespace}/codex-home`,
-      BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
+      BRIDGE_STATE_DIR: path.join(".tmp", namespace, "state"),
+      CODEX_HOME: path.join(".tmp", namespace, "codex-home"),
+      BRIDGE_UPLOADS_DIR: path.join(".tmp", namespace, "uploads"),
       FEISHU_BASE_URL: "https://open.feishu.cn",
       FEISHU_APP_ID: "cli-app-id",
       FEISHU_APP_SECRET: "cli-app-secret",
@@ -94,7 +96,7 @@ async function createHarness(
       FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
       ...envOverrides,
     },
-    "/workspace/codex-feishu-bridge",
+    workspaceRoot,
   );
   const logger = createConsoleLogger("feishu-bridge-test");
 
