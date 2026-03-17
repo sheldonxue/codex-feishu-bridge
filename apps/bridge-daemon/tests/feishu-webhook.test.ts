@@ -27,6 +27,19 @@ function textInputs(
   return input.filter((item): item is { type: "text"; text: string } => item.type === "text" && Boolean(item.text)).map((item) => item.text);
 }
 
+function approvalDecisionValue(result: unknown): string | undefined {
+  if (typeof result === "string") {
+    return result;
+  }
+
+  if (result && typeof result === "object" && "decision" in result) {
+    const decision = (result as { decision?: unknown }).decision;
+    return typeof decision === "string" ? decision : undefined;
+  }
+
+  return undefined;
+}
+
 async function waitFor(check: () => boolean, message: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (check()) {
@@ -304,10 +317,10 @@ describe("feishu bridge", { concurrency: 1 }, () => {
       assert.equal(accepted.body.ok, true);
 
       await waitFor(
-        () => approvalDecisions.some((entry) => entry.result === "accept"),
+        () => approvalDecisions.some((entry) => approvalDecisionValue(entry.result) === "accept"),
         `task ${task.taskId} approval routing`,
       );
-      assert.equal(approvalDecisions.at(-1)?.result, "accept");
+      assert.equal(approvalDecisionValue(approvalDecisions.at(-1)?.result), "accept");
       assert.ok(harness.calls.some((entry) => entry.includes(`/open-apis/im/v1/messages/${rootMessageId}/reply`)));
 
       const deduped = await postWebhook(
@@ -498,7 +511,7 @@ describe("feishu bridge", { concurrency: 1 }, () => {
         },
       });
       await waitFor(() => approvalDecisions.length > decisionCountBeforeDecline, "decline approval decision");
-      assert.equal(approvalDecisions.at(-1)?.result, "decline");
+      assert.equal(approvalDecisionValue(approvalDecisions.at(-1)?.result), "decline");
       await waitFor(
         () => harness.service.getTask(declineTask.taskId)?.pendingApprovals[0]?.state === "declined",
         `task ${declineTask.taskId} decline state`,
@@ -533,7 +546,7 @@ describe("feishu bridge", { concurrency: 1 }, () => {
         },
       });
       await waitFor(() => approvalDecisions.length > decisionCountBeforeCancel, "cancel approval decision");
-      assert.equal(approvalDecisions.at(-1)?.result, "cancel");
+      assert.equal(approvalDecisionValue(approvalDecisions.at(-1)?.result), "cancel");
       await waitFor(
         () => harness.service.getTask(cancelTask.taskId)?.pendingApprovals[0]?.state === "cancelled",
         `task ${cancelTask.taskId} cancel state`,
