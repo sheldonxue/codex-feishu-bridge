@@ -18,6 +18,7 @@
     "runtime:up": "docker compose -f docker/compose.yaml --env-file docker/.env.example up -d bridge-runtime",
     "runtime:shell": "docker compose -f docker/compose.yaml --env-file docker/.env.example exec bridge-runtime bash",
     "bridge:cli": "node scripts/bridge-cli.mjs",
+    "feishu:resolve-chat": "node --import tsx scripts/resolve-feishu-chat.ts",
     "hub:init": "node scripts/hub-cli.mjs init",
     "hub:post": "node scripts/hub-cli.mjs post",
     "hub:broadcast": "node scripts/hub-cli.mjs broadcast",

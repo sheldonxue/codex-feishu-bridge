@@ -1,6 +1,7 @@
 import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { FeishuBridge } from "./feishu/bridge";
+import { resolveFeishuDefaultChatConfig } from "./feishu/chat-resolution";
 import { createFeishuLongConnectionFactory } from "./feishu/long-connection";
 import { createBridgeHttpServer } from "./server/http";
 import { createCodexRuntime } from "./runtime";
@@ -12,8 +13,8 @@ export interface BridgeDaemonHandle {
 }
 
 export async function startBridgeDaemon(): Promise<BridgeDaemonHandle> {
-  const config = loadBridgeConfig();
   const logger = createConsoleLogger("bridge-daemon");
+  const config = await resolveFeishuDefaultChatConfig(loadBridgeConfig(), logger);
 
   await prepareBridgeDirectories(config);
 

@@ -38,6 +38,7 @@ describe("shared config helpers", () => {
         FEISHU_VERIFICATION_TOKEN: "verify-token",
         FEISHU_ENCRYPT_KEY: "encrypt-key",
         FEISHU_DEFAULT_CHAT_ID: "oc_xxx",
+        FEISHU_DEFAULT_CHAT_NAME: "Bridge Test Group",
       },
       "/workspace/codex-feishu-bridge",
     );
@@ -48,5 +49,6 @@ describe("shared config helpers", () => {
     assert.equal(config.feishuVerificationToken, "verify-token");
     assert.equal(config.feishuEncryptKey, "encrypt-key");
     assert.equal(config.feishuDefaultChatId, "oc_xxx");
+    assert.equal(config.feishuDefaultChatName, "Bridge Test Group");
   });
 });

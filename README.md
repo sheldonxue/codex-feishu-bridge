@@ -213,7 +213,16 @@ Then open the repository in VSCode and run the `Codex Feishu Bridge Extension` l
 - create or resume a task and verify task state, diffs, approvals, and uploads against the daemon
 
 9. For Feishu live validation, prefer the official SDK long-connection path.
-Set `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and `FEISHU_DEFAULT_CHAT_ID`, then let `bridge-daemon` start the long-connection client automatically at startup.
+Set `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and either `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME`, then let `bridge-daemon` start the long-connection client automatically at startup.
+
+If you only know the group name, you can inspect or resolve visible chats with:
+
+```bash
+npm run feishu:resolve-chat -- --list
+npm run feishu:resolve-chat -- --name "Your Feishu Group Name"
+```
+
+When `FEISHU_DEFAULT_CHAT_NAME` is present, `bridge-daemon` resolves the exact chat automatically at startup before enabling the Feishu bridge.
 
 Use `/feishu/webhook` only as a compatibility path when you intentionally keep webhook credentials configured.
 
@@ -253,7 +262,7 @@ After restart, each agent should:
 
 ## Feishu Notes
 
-- Set `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and `FEISHU_DEFAULT_CHAT_ID` in `docker/.env` for the long-connection path.
+- Set `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and either `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME` in `docker/.env` for the long-connection path.
 - `bridge-daemon` starts the official SDK long-connection client automatically when those three values are present.
 - `FEISHU_VERIFICATION_TOKEN` and `FEISHU_ENCRYPT_KEY` are only required for the webhook compatibility path.
 - Each task is mirrored into one Feishu root message plus reply chain.

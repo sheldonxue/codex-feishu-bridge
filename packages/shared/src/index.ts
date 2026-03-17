@@ -29,6 +29,7 @@ export interface BridgeConfig {
   feishuVerificationToken?: string;
   feishuEncryptKey?: string;
   feishuDefaultChatId?: string;
+  feishuDefaultChatName?: string;
 }
 
 export function createConsoleLogger(prefix = "bridge"): Logger {
@@ -100,6 +101,7 @@ export function loadBridgeConfig(
     feishuVerificationToken: env.FEISHU_VERIFICATION_TOKEN,
     feishuEncryptKey: env.FEISHU_ENCRYPT_KEY,
     feishuDefaultChatId: env.FEISHU_DEFAULT_CHAT_ID,
+    feishuDefaultChatName: env.FEISHU_DEFAULT_CHAT_NAME,
   };
 }
 
