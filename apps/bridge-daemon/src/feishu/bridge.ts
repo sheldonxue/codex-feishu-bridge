@@ -41,6 +41,7 @@ export interface FeishuIncomingMessage {
   message_id?: string;
   root_id?: string;
   parent_id?: string;
+  thread_id?: string;
   chat_id?: string;
   message_type?: string;
   content?: string;
@@ -309,7 +310,7 @@ export class FeishuBridge {
       return;
     }
 
-    const lookupId = message.root_id ?? message.parent_id ?? message.message_id;
+    const lookupId = message.root_id ?? message.parent_id ?? message.thread_id ?? message.message_id;
     if (!lookupId) {
       return;
     }
