@@ -38,7 +38,11 @@ export class TaskStore {
     const daemonSnapshot = await this.client.fetchSnapshot();
     this.snapshot = applyDaemonSnapshot(
       this.snapshot,
-      daemonSnapshot,
+      {
+        ...daemonSnapshot,
+        account: daemonSnapshot.account ?? this.snapshot.account,
+        rateLimits: daemonSnapshot.rateLimits ?? this.snapshot.rateLimits,
+      },
       this.socket ? "connected" : "disconnected",
     );
     this.emitter.emit("changed");

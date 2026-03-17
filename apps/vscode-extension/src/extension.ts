@@ -166,10 +166,30 @@ function selectTaskDiff(task: BridgeTask, diffPath?: string): BridgeTask["diffs"
   return selectedDiff;
 }
 
+function diffDocumentContent(diff: BridgeTask["diffs"][number]): string {
+  const patch = diff.patch?.trimEnd();
+  if (!patch) {
+    return `# ${diff.path}\n\n${diffSummaryText(diff.summary)}`;
+  }
+
+  const looksLikeUnifiedDiff =
+    patch.startsWith("diff ") ||
+    patch.startsWith("--- ") ||
+    patch.startsWith("+++ ") ||
+    patch.includes("\n--- ") ||
+    patch.includes("\n+++ ");
+
+  if (looksLikeUnifiedDiff || patch.includes(diff.path)) {
+    return patch;
+  }
+
+  return `# ${diff.path}\n\n${patch}`;
+}
+
 async function openTaskDiff(task: BridgeTask, diffPath?: string): Promise<BridgeTask["diffs"][number]> {
   const selectedDiff = selectTaskDiff(task, diffPath);
   const document = await vscode.workspace.openTextDocument({
-    content: selectedDiff.patch ?? `# ${selectedDiff.path}\n\n${selectedDiff.summary}`,
+    content: diffDocumentContent(selectedDiff),
     language: "diff",
   });
   await vscode.window.showTextDocument(document, { preview: false });
@@ -437,11 +457,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const document = await vscode.workspace.openTextDocument({
-        content: selectedDiff.patch ?? `# ${selectedDiff.path}\n\n${selectedDiff.summary}`,
-        language: "diff",
-      });
-      await vscode.window.showTextDocument(document, { preview: false });
+      await openTaskDiff(task, selectedDiff.path);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.openTaskDetails", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
       const task = (await resolveTaskArgument(services.store, taskOrItem)) ??

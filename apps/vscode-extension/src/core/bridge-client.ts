@@ -109,8 +109,8 @@ export class BridgeClient {
   }
 
   async fetchSnapshot(): Promise<DaemonSnapshot> {
-    const [tasks, account, rateLimits] = await Promise.all([
-      this.requestJson<{ tasks: BridgeTask[] }>("/tasks"),
+    const tasks = await this.requestJson<{ tasks: BridgeTask[] }>("/tasks");
+    const [account, rateLimits] = await Promise.allSettled([
       this.requestJson("/auth/account"),
       this.requestJson("/auth/rate-limits"),
     ]);
@@ -118,8 +118,8 @@ export class BridgeClient {
     return {
       seq: 0,
       tasks: tasks.tasks,
-      account,
-      rateLimits,
+      account: account.status === "fulfilled" ? account.value : null,
+      rateLimits: rateLimits.status === "fulfilled" ? rateLimits.value : null,
     };
   }
 

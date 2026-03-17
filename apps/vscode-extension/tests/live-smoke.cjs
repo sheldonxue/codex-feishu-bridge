@@ -11,6 +11,7 @@ const connectionTimeoutMs = Number(process.env.CFB_CONNECTION_TIMEOUT_MS ?? "450
 const taskTimeoutMs = Number(process.env.CFB_TASK_TIMEOUT_MS ?? "180000");
 const approvalTimeoutMs = Number(process.env.CFB_APPROVAL_TIMEOUT_MS ?? "90000");
 const requireApproval = process.env.CFB_ALLOW_MISSING_APPROVAL !== "1";
+const wsPath = process.env.CFB_WS_PATH ?? "/ws";
 
 const promptText = [
   "Please edit `greeting.txt` so it contains exactly `hello bridge`.",
@@ -107,6 +108,8 @@ async function run() {
   const health = await requestJson("/health");
   assert.equal(health.runtime.backend, "stdio", "Live smoke requires the stdio daemon backend.");
 
+  await vscode.workspace.getConfiguration("codexFeishuBridge").update("baseUrl", baseUrl, vscode.ConfigurationTarget.Global);
+  await vscode.workspace.getConfiguration("codexFeishuBridge").update("wsPath", wsPath, vscode.ConfigurationTarget.Global);
   await activateExtension();
   await vscode.commands.executeCommand("workbench.view.explorer");
 
@@ -179,52 +182,42 @@ async function run() {
     30000,
   );
 
-  const diffTask = await waitFor(
-    "task diff output",
+  const readyTask = await waitFor(
+    "task diff output or approval",
     async () => {
       const currentTask = await taskFromSnapshot(task.taskId);
-      return currentTask && currentTask.diffs.length > 0 ? currentTask : false;
+      if (!currentTask) {
+        return false;
+      }
+
+      if (currentTask.pendingApprovals.some((approval) => approval.state === "pending")) {
+        return currentTask;
+      }
+
+      return currentTask.diffs.length > 0 ? currentTask : false;
     },
     taskTimeoutMs,
   );
 
-  await execDev("codexFeishuBridge.dev.openDiff", {
-    taskId: task.taskId,
-  });
-  const diffContent = await waitFor(
-    "diff editor",
-    async () => {
-      for (const editor of vscode.window.visibleTextEditors) {
-        if (editor.document.languageId !== "diff") {
-          continue;
-        }
-
-        const text = editor.document.getText();
-        if (text.includes("greeting.txt")) {
-          return text;
-        }
+  let approvalTask =
+    readyTask.pendingApprovals.some((approval) => approval.state === "pending") ? readyTask : null;
+  if (!approvalTask) {
+    try {
+      approvalTask = await waitFor(
+        "pending approval",
+        async () => {
+          const currentTask = await taskFromSnapshot(task.taskId);
+          if (currentTask && currentTask.status === "awaiting-approval" && currentTask.pendingApprovals.length === 0) {
+            throw new Error("Task entered awaiting-approval without any queued approval payload.");
+          }
+          return currentTask && currentTask.pendingApprovals.some((approval) => approval.state === "pending") ? currentTask : false;
+        },
+        approvalTimeoutMs,
+      );
+    } catch (error) {
+      if (requireApproval) {
+        throw error;
       }
-      return false;
-    },
-    15000,
-  );
-
-  let approvalTask = null;
-  try {
-    approvalTask = await waitFor(
-      "pending approval",
-      async () => {
-        const currentTask = await taskFromSnapshot(task.taskId);
-        if (currentTask && currentTask.status === "awaiting-approval" && currentTask.pendingApprovals.length === 0) {
-          throw new Error("Task entered awaiting-approval without any queued approval payload.");
-        }
-        return currentTask && currentTask.pendingApprovals.some((approval) => approval.state === "pending") ? currentTask : false;
-      },
-      approvalTimeoutMs,
-    );
-  } catch (error) {
-    if (requireApproval) {
-      throw error;
     }
   }
 
@@ -254,6 +247,39 @@ async function run() {
       30000,
     );
   }
+
+  const diffTask =
+    readyTask.diffs.length > 0
+      ? readyTask
+      : await waitFor(
+          "task diff output",
+          async () => {
+            const currentTask = await taskFromSnapshot(task.taskId);
+            return currentTask && currentTask.diffs.length > 0 ? currentTask : false;
+          },
+          taskTimeoutMs,
+        );
+
+  await execDev("codexFeishuBridge.dev.openDiff", {
+    taskId: task.taskId,
+  });
+  const diffContent = await waitFor(
+    "diff editor",
+    async () => {
+      for (const editor of vscode.window.visibleTextEditors) {
+        if (editor.document.languageId !== "diff") {
+          continue;
+        }
+
+        const text = editor.document.getText();
+        if (text.includes("greeting.txt")) {
+          return text;
+        }
+      }
+      return false;
+    },
+    15000,
+  );
 
   const result = {
     baseUrl,
