@@ -37,32 +37,29 @@ interface PersistedFeishuState {
   processedEventIds: string[];
 }
 
-type LongConnectionHandle = {
-  stop: () => Promise<void>;
-};
+export interface FeishuIncomingMessage {
+  message_id?: string;
+  root_id?: string;
+  parent_id?: string;
+  chat_id?: string;
+  message_type?: string;
+  content?: string;
+}
 
-type LongConnectionFactory = (params: {
-  onMessage: (
-    message?:
-      | {
-          message_id?: string;
-          root_id?: string;
-          parent_id?: string;
-          chat_id?: string;
-          message_type?: string;
-          content?: string;
-        }
-      | undefined,
-    sender?:
-      | {
-          sender_id?: {
-            open_id?: string;
-            union_id?: string;
-            user_id?: string;
-          };
-        }
-      | undefined,
-  ) => Promise<void>;
+export interface FeishuIncomingSender {
+  sender_id?: {
+    open_id?: string;
+    union_id?: string;
+    user_id?: string;
+  };
+}
+
+export interface LongConnectionHandle {
+  stop: () => Promise<void> | void;
+}
+
+export type LongConnectionFactory = (params: {
+  onMessage: (message?: FeishuIncomingMessage, sender?: FeishuIncomingSender) => Promise<void>;
   config: BridgeConfig;
   logger: Logger;
 }) => Promise<LongConnectionHandle>;
@@ -302,23 +299,10 @@ export class FeishuBridge {
 
   private async handleIncomingMessage(
     message:
-      | {
-          message_id?: string;
-          root_id?: string;
-          parent_id?: string;
-          chat_id?: string;
-          message_type?: string;
-          content?: string;
-        }
+      | FeishuIncomingMessage
       | undefined,
     sender:
-      | {
-          sender_id?: {
-            open_id?: string;
-            union_id?: string;
-            user_id?: string;
-          };
-        }
+      | FeishuIncomingSender
       | undefined,
   ): Promise<void> {
     if (!message || message.message_type !== "text") {

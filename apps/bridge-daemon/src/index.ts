@@ -1,6 +1,7 @@
 import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { FeishuBridge } from "./feishu/bridge";
+import { createFeishuLongConnectionFactory } from "./feishu/long-connection";
 import { createBridgeHttpServer } from "./server/http";
 import { createCodexRuntime } from "./runtime";
 import { BridgeService } from "./service/bridge-service";
@@ -22,7 +23,12 @@ export async function startBridgeDaemon(): Promise<BridgeDaemonHandle> {
   const service = new BridgeService({ config, logger, runtime });
   await service.initialize();
 
-  const feishu = new FeishuBridge({ config, logger, service });
+  const feishu = new FeishuBridge({
+    config,
+    logger,
+    service,
+    longConnectionFactory: createFeishuLongConnectionFactory(),
+  });
   await feishu.initialize();
 
   const server = createBridgeHttpServer({ config, feishu, logger, runtime, service });

@@ -8,6 +8,7 @@
   "dependencies": {
     "@codex-feishu-bridge/protocol": "0.1.0",
     "@codex-feishu-bridge/shared": "0.1.0",
+    "@larksuiteoapi/node-sdk": "^1.59.0",
     "ws": "^8.18.1"
   },
   "devDependencies": {
