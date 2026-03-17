@@ -175,6 +175,10 @@ function approvalStateFromDecision(decision: CodexApprovalDecision): ApprovalSta
   }
 }
 
+function runtimeRequestIdFromTaskRequestId(requestId: string): number | string {
+  return /^\d+$/.test(requestId) ? Number(requestId) : requestId;
+}
+
 function conversationContentFromInput(input: CodexInputItem[]): { content: string; imageAssetPaths: string[] } {
   const text = input
     .filter((item): item is Extract<CodexInputItem, { type: "text" }> => item.type === "text")
@@ -434,7 +438,9 @@ export class BridgeService {
     task.status = approval.state === "accepted" ? "running" : "blocked";
     this.touchTask(task);
     await this.persistState();
-    await this.options.runtime.respondToRequest(requestId, decision);
+    await this.options.runtime.respondToRequest(runtimeRequestIdFromTaskRequestId(requestId), {
+      decision,
+    });
 
     this.emitEvent(task.taskId, "approval.resolved", {
       taskId: task.taskId,
@@ -619,7 +625,8 @@ export class BridgeService {
           turnId?: string;
           reason?: string;
         };
-        if (!params.threadId || params.requestId === undefined) {
+        const runtimeRequestId = params.requestId ?? notification.requestId;
+        if (!params.threadId || runtimeRequestId === undefined) {
           return;
         }
         const task = this.tasks.get(params.threadId);
@@ -628,11 +635,12 @@ export class BridgeService {
         }
 
         const kind = notification.method.includes("fileChange") ? "file-change" : "command";
-        const existing = task.pendingApprovals.find((entry) => entry.requestId === String(params.requestId));
+        const requestId = String(runtimeRequestId);
+        const existing = task.pendingApprovals.find((entry) => entry.requestId === requestId);
         const approval: QueuedApproval =
           existing ??
           {
-            requestId: String(params.requestId),
+            requestId,
             taskId: task.taskId,
             turnId: params.turnId,
             kind,
@@ -655,14 +663,16 @@ export class BridgeService {
       }
       case "serverRequest/resolved": {
         const params = notification.params as { threadId?: string; requestId?: string | number };
-        if (!params.threadId || params.requestId === undefined) {
+        const runtimeRequestId = params.requestId ?? notification.requestId;
+        if (!params.threadId || runtimeRequestId === undefined) {
           return;
         }
         const task = this.tasks.get(params.threadId);
         if (!task) {
           return;
         }
-        const approval = task.pendingApprovals.find((entry) => entry.requestId === String(params.requestId));
+        const requestId = String(runtimeRequestId);
+        const approval = task.pendingApprovals.find((entry) => entry.requestId === requestId);
         if (approval && approval.state === "pending") {
           approval.state = "cancelled";
           approval.resolvedAt = new Date().toISOString();
@@ -671,7 +681,7 @@ export class BridgeService {
         await this.persistState();
         this.emitEvent(task.taskId, "approval.resolved", {
           taskId: task.taskId,
-          requestId: String(params.requestId),
+          requestId,
         });
         return;
       }
