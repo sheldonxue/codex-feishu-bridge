@@ -451,6 +451,15 @@ describe("feishu bridge", { concurrency: 1 }, () => {
 
       await waitFor(() => approvalDecisions.length > 0, "approval routing");
       assert.deepEqual(approvalDecisions[0]?.result, { decision: "accept" });
+      await delay(50);
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("Approval resolved for")),
+        false,
+      );
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("approve applied to approval")),
+        false,
+      );
       assert.equal(
         harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
         false,

@@ -470,6 +470,15 @@ describe("feishu long connection ingress", () => {
 
       await waitFor(() => approvalDecisions.length > 0, "approval decision");
       assert.deepEqual(approvalDecisions[0]?.result, { decision: "accept" });
+      await delay(50);
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("Approval resolved for")),
+        false,
+      );
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("approve applied to approval")),
+        false,
+      );
 
       await harness.onMessage(
         {

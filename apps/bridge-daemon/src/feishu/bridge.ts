@@ -646,6 +646,9 @@ export class FeishuBridge {
           approvalPayload.approval?.state ??
           task.pendingApprovals.find((entry) => entry.requestId === requestId)?.state ??
           "resolved";
+        if (resolutionState === "accepted") {
+          return;
+        }
         const resolutionKey = `${task.taskId}:${requestId ?? "unknown"}:${resolutionState}`;
         if (this.deliveredApprovalResolutionKeys.has(resolutionKey)) {
           return;
@@ -975,7 +978,6 @@ export class FeishuBridge {
         }
 
         await this.options.service.resolveApproval(task.taskId, approval.requestId, decision);
-        await this.replyToMessage(replyTargetId, `${command} applied to approval ${approval.requestId}.`);
         return;
       }
       default:
