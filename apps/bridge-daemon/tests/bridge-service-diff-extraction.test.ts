@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories, writeJsonFile } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories, writeJsonFile } from "@codex-feishu-bridge/shared";
 
 import type {
   CodexAccountSnapshot,
@@ -16,6 +16,7 @@ import type {
   CodexThreadDescriptor,
 } from "../src/runtime";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
 
 class DiffExtractionRuntime implements CodexRuntime {
   readonly backend = "stdio";
@@ -81,7 +82,7 @@ class DiffExtractionRuntime implements CodexRuntime {
     return {
       id: threadId,
       name: "Diff task",
-      cwd: "/workspace/codex-feishu-bridge",
+      cwd: TEST_REPO_ROOT,
       updatedAt: "2026-03-17T00:00:00.000Z",
       status: {
         type: "idle",
@@ -135,15 +136,7 @@ function diffMessage(text: string) {
 describe("bridge service diff extraction compatibility", () => {
   it("extracts structured task diffs from agent diff fences when no fileChange item is present", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: process.cwd(),
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      process.cwd(),
-    );
+    const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-diff-extraction-test");
     await prepareBridgeDirectories(config);
 
@@ -181,15 +174,7 @@ describe("bridge service diff extraction compatibility", () => {
 
   it("does not overwrite existing structured fileChange diffs with extracted agent-message diffs", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: process.cwd(),
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      process.cwd(),
-    );
+    const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-diff-extraction-test");
     await prepareBridgeDirectories(config);
 
@@ -246,15 +231,7 @@ describe("bridge service diff extraction compatibility", () => {
 
   it("hydrates structured diffs from persisted latestSummary blocks when stored diffs are empty", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: process.cwd(),
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      process.cwd(),
-    );
+    const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-diff-extraction-test");
     await prepareBridgeDirectories(config);
 
@@ -263,7 +240,7 @@ describe("bridge service diff extraction compatibility", () => {
       threadId: "thread-diff",
       mode: "bridge-managed",
       title: "Persisted diff task",
-      workspaceRoot: process.cwd(),
+      workspaceRoot: TEST_REPO_ROOT,
       status: "completed",
       pendingApprovals: [],
       diffs: [],
@@ -271,6 +248,7 @@ describe("bridge service diff extraction compatibility", () => {
       conversation: [],
       createdAt: "2026-03-17T00:00:00.000Z",
       updatedAt: "2026-03-17T00:00:00.000Z",
+      executionProfile: {},
       latestSummary:
         "[greeting.txt](/tmp/greeting.txt) now contains exactly `hello bridge`.\n\nDiff ready for review:\n```diff\n--- a/greeting.txt\n+++ b/greeting.txt\n@@ -0,0 +1 @@\n+hello bridge\n```",
     };

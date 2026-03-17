@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import type {
   CodexAccountSnapshot,
@@ -18,6 +18,7 @@ import type {
   CodexThreadDescriptor,
 } from "../src/runtime";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
 
 class ApprovalCompatRuntime implements CodexRuntime {
   readonly backend = "stdio";
@@ -84,7 +85,7 @@ class ApprovalCompatRuntime implements CodexRuntime {
     return {
       id: threadId,
       name: "Approval task",
-      cwd: "/workspace/codex-feishu-bridge",
+      cwd: TEST_REPO_ROOT,
       updatedAt: "2026-03-17T00:00:00.000Z",
       status: {
         type: "idle",
@@ -132,15 +133,7 @@ class ApprovalCompatRuntime implements CodexRuntime {
 describe("bridge service approval compatibility", () => {
   it("captures approvals when the JSON-RPC request id is only on the notification envelope", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: process.cwd(),
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      process.cwd(),
-    );
+    const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-approval-test");
     await prepareBridgeDirectories(config);
 
@@ -189,15 +182,7 @@ describe("bridge service approval compatibility", () => {
 
   it("responds to numeric approval ids with a numeric JSON-RPC response id", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: process.cwd(),
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      process.cwd(),
-    );
+    const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-approval-test");
     await prepareBridgeDirectories(config);
 

@@ -1,29 +1,22 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { StdioCodexRuntime } from "../src/runtime/stdio-codex-runtime";
+import { createTestBridgeConfig, TEST_REPO_ROOT, resolveTestRepoPath } from "./test-paths";
 
 describe("stdio runtime compatibility", () => {
   it("normalizes live-shaped responses and sends expectedTurnId for steer", async () => {
     const namespace = randomUUID();
-    const workspaceRoot = process.cwd();
-    const fixturePath = path.resolve(workspaceRoot, "apps/bridge-daemon/tests/fixtures/fake-codex-app-server.mjs");
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: workspaceRoot,
-        CODEX_RUNTIME_BACKEND: "stdio",
-        CODEX_APP_SERVER_BIN: process.execPath,
-        CODEX_APP_SERVER_ARGS: fixturePath,
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      workspaceRoot,
-    );
+    const workspaceRoot = TEST_REPO_ROOT;
+    const fixturePath = resolveTestRepoPath("apps/bridge-daemon/tests/fixtures/fake-codex-app-server.mjs");
+    const config = createTestBridgeConfig(namespace, {
+      CODEX_RUNTIME_BACKEND: "stdio",
+      CODEX_APP_SERVER_BIN: process.execPath,
+      CODEX_APP_SERVER_ARGS: fixturePath,
+    });
     const logger = createConsoleLogger("stdio-runtime-test");
 
     await prepareBridgeDirectories(config);

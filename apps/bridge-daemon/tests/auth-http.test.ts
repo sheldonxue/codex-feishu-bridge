@@ -3,27 +3,21 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { createCodexRuntime } from "../src/runtime";
 import { createBridgeHttpServer } from "../src/server/http";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig } from "./test-paths";
 
 describe("bridge daemon auth http server", () => {
   it("serves health and auth endpoints with the mock runtime", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
-        BRIDGE_PORT: "0",
-        CODEX_RUNTIME_BACKEND: "mock",
-        MOCK_AUTO_COMPLETE_LOGIN: "true",
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      "/workspace/codex-feishu-bridge",
-    );
+    const config = createTestBridgeConfig(namespace, {
+      BRIDGE_PORT: "0",
+      CODEX_RUNTIME_BACKEND: "mock",
+      MOCK_AUTO_COMPLETE_LOGIN: "true",
+    });
     const logger = createConsoleLogger("bridge-daemon-test");
 
     await prepareBridgeDirectories(config);

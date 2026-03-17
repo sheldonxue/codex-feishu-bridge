@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { FeishuBridge } from "../src/feishu/bridge";
 import { createCodexRuntime } from "../src/runtime";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig } from "./test-paths";
 
 interface RequestRecord {
   method: string;
@@ -51,24 +51,16 @@ async function waitFor(check: () => boolean, message: string): Promise<void> {
 
 async function createHarness(envOverrides: Record<string, string> = {}): Promise<LongConnectionHarness> {
   const namespace = randomUUID();
-  const workspaceRoot = process.cwd();
-  const config = loadBridgeConfig(
-    {
-      WORKSPACE_PATH: workspaceRoot,
-      BRIDGE_STATE_DIR: path.join(".tmp", namespace, "state"),
-      CODEX_HOME: path.join(".tmp", namespace, "codex-home"),
-      BRIDGE_UPLOADS_DIR: path.join(".tmp", namespace, "uploads"),
-      CODEX_RUNTIME_BACKEND: "mock",
-      FEISHU_BASE_URL: "https://open.feishu.cn",
-      FEISHU_APP_ID: "cli-app-id",
-      FEISHU_APP_SECRET: "cli-app-secret",
-      FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
-      FEISHU_VERIFICATION_TOKEN: "",
-      FEISHU_ENCRYPT_KEY: "",
-      ...envOverrides,
-    },
-    workspaceRoot,
-  );
+  const config = createTestBridgeConfig(namespace, {
+    CODEX_RUNTIME_BACKEND: "mock",
+    FEISHU_BASE_URL: "https://open.feishu.cn",
+    FEISHU_APP_ID: "cli-app-id",
+    FEISHU_APP_SECRET: "cli-app-secret",
+    FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
+    FEISHU_VERIFICATION_TOKEN: "",
+    FEISHU_ENCRYPT_KEY: "",
+    ...envOverrides,
+  });
   const logger = createConsoleLogger("feishu-long-connection-test");
 
   await prepareBridgeDirectories(config);

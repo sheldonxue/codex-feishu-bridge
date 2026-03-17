@@ -7,6 +7,7 @@ import {
   listVisibleFeishuChats,
   resolveFeishuDefaultChatConfig,
 } from "../src/feishu/chat-resolution";
+import { TEST_REPO_ROOT } from "./test-paths";
 
 describe("feishu chat resolution", () => {
   it("lists visible chats across pages", async () => {
@@ -55,12 +56,12 @@ describe("feishu chat resolution", () => {
     try {
       const config = loadBridgeConfig(
         {
-          WORKSPACE_PATH: process.cwd(),
+          WORKSPACE_PATH: TEST_REPO_ROOT,
           FEISHU_BASE_URL: "https://open.feishu.cn",
           FEISHU_APP_ID: "cli-app-id",
           FEISHU_APP_SECRET: "cli-app-secret",
         },
-        process.cwd(),
+        TEST_REPO_ROOT,
       );
 
       const chats = await listVisibleFeishuChats(config);
@@ -107,13 +108,13 @@ describe("feishu chat resolution", () => {
     try {
       const config = loadBridgeConfig(
         {
-          WORKSPACE_PATH: process.cwd(),
+          WORKSPACE_PATH: TEST_REPO_ROOT,
           FEISHU_BASE_URL: "https://open.feishu.cn",
           FEISHU_APP_ID: "cli-app-id",
           FEISHU_APP_SECRET: "cli-app-secret",
           FEISHU_DEFAULT_CHAT_NAME: "Bridge Target",
         },
-        process.cwd(),
+        TEST_REPO_ROOT,
       );
 
       const resolved = await resolveFeishuDefaultChatConfig(
@@ -157,13 +158,13 @@ describe("feishu chat resolution", () => {
     try {
       const config = loadBridgeConfig(
         {
-          WORKSPACE_PATH: process.cwd(),
+          WORKSPACE_PATH: TEST_REPO_ROOT,
           FEISHU_BASE_URL: "https://open.feishu.cn",
           FEISHU_APP_ID: "cli-app-id",
           FEISHU_APP_SECRET: "cli-app-secret",
           FEISHU_DEFAULT_CHAT_NAME: "Missing Group",
         },
-        process.cwd(),
+        TEST_REPO_ROOT,
       );
 
       await assert.rejects(
@@ -208,13 +209,13 @@ describe("feishu chat resolution", () => {
     try {
       const config = loadBridgeConfig(
         {
-          WORKSPACE_PATH: process.cwd(),
+          WORKSPACE_PATH: TEST_REPO_ROOT,
           FEISHU_BASE_URL: "https://open.feishu.cn",
           FEISHU_APP_ID: "cli-app-id",
           FEISHU_APP_SECRET: "cli-app-secret",
           FEISHU_DEFAULT_CHAT_NAME: "Bridge Target",
         },
-        process.cwd(),
+        TEST_REPO_ROOT,
       );
 
       await assert.rejects(

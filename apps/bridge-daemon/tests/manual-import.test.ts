@@ -3,26 +3,20 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { createBridgeHttpServer } from "../src/server/http";
 import { MockCodexRuntime } from "../src/runtime/mock-codex-runtime";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
 
 describe("manual thread import", () => {
   it("imports an externally seeded thread, resumes it, and continues the conversation", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
-        BRIDGE_PORT: "0",
-        CODEX_RUNTIME_BACKEND: "mock",
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      "/workspace/codex-feishu-bridge",
-    );
+    const config = createTestBridgeConfig(namespace, {
+      BRIDGE_PORT: "0",
+      CODEX_RUNTIME_BACKEND: "mock",
+    });
     const logger = createConsoleLogger("manual-import-test");
 
     await prepareBridgeDirectories(config);
@@ -31,7 +25,7 @@ describe("manual thread import", () => {
     await runtime.start();
     const externalThread = runtime.seedExternalThread({
       name: "External CLI thread",
-      cwd: "/workspace/codex-feishu-bridge",
+      cwd: TEST_REPO_ROOT,
     });
 
     const service = new BridgeService({ config, logger, runtime });

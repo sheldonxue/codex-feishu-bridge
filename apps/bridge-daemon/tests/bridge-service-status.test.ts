@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import type {
   CodexAccountSnapshot,
@@ -17,6 +17,7 @@ import type {
   CodexThreadDescriptor,
 } from "../src/runtime";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
 
 class FakeStatusRuntime implements CodexRuntime {
   readonly backend = "stdio";
@@ -62,7 +63,7 @@ class FakeStatusRuntime implements CodexRuntime {
     return {
       id: "thread-awaiting-approval",
       name: "Needs approval",
-      cwd: "/workspace/codex-feishu-bridge",
+      cwd: TEST_REPO_ROOT,
       updatedAt: "2026-03-17T00:00:00.000Z",
       status: {
         type: "active",
@@ -76,7 +77,7 @@ class FakeStatusRuntime implements CodexRuntime {
       {
         id: "thread-not-loaded",
         name: "Imported thread",
-        cwd: "/workspace/codex-feishu-bridge",
+        cwd: TEST_REPO_ROOT,
         updatedAt: "2026-03-17T00:10:00.000Z",
         status: {
           type: "notLoaded",
@@ -93,7 +94,7 @@ class FakeStatusRuntime implements CodexRuntime {
     return {
       id: threadId,
       name: "Imported thread",
-      cwd: "/workspace/codex-feishu-bridge",
+      cwd: TEST_REPO_ROOT,
       updatedAt: "2026-03-17T00:15:00.000Z",
       status: {
         type: "idle",
@@ -139,16 +140,7 @@ class FakeStatusRuntime implements CodexRuntime {
 describe("bridge service runtime status mapping", () => {
   it("maps real thread status objects into bridge task states", async () => {
     const namespace = randomUUID();
-    const workspaceRoot = process.cwd();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: workspaceRoot,
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      workspaceRoot,
-    );
+    const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-status-test");
     await prepareBridgeDirectories(config);
 

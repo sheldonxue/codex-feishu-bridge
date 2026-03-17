@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { createConsoleLogger, loadBridgeConfig } from "@codex-feishu-bridge/shared";
 
 import { createFeishuLongConnectionFactory } from "../src/feishu/long-connection";
+import { TEST_REPO_ROOT } from "./test-paths";
 
 describe("feishu sdk long connection factory", () => {
   it("builds the official sdk client, registers im.message.receive_v1, and closes cleanly", async () => {
@@ -53,13 +54,13 @@ describe("feishu sdk long connection factory", () => {
     });
     const config = loadBridgeConfig(
       {
-        WORKSPACE_PATH: process.cwd(),
+        WORKSPACE_PATH: TEST_REPO_ROOT,
         FEISHU_BASE_URL: "https://open.feishu.cn",
         FEISHU_APP_ID: "cli-app-id",
         FEISHU_APP_SECRET: "cli-app-secret",
         FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
       },
-      process.cwd(),
+      TEST_REPO_ROOT,
     );
     const logger = createConsoleLogger("feishu-sdk-long-connection-test");
 

@@ -3,25 +3,19 @@ import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { MockCodexRuntime } from "../src/runtime/mock-codex-runtime";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
 
 describe("bridge recovery", () => {
   it("reloads persisted tasks and expires stale approvals when the runtime comes back idle", async () => {
     const namespace = randomUUID();
-    const config = loadBridgeConfig(
-      {
-        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
-        BRIDGE_PORT: "0",
-        CODEX_RUNTIME_BACKEND: "mock",
-        BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
-        CODEX_HOME: `.tmp/${namespace}/codex-home`,
-        BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
-      },
-      "/workspace/codex-feishu-bridge",
-    );
+    const config = createTestBridgeConfig(namespace, {
+      BRIDGE_PORT: "0",
+      CODEX_RUNTIME_BACKEND: "mock",
+    });
     const logger = createConsoleLogger("bridge-recovery-test");
 
     await prepareBridgeDirectories(config);
@@ -47,7 +41,7 @@ describe("bridge recovery", () => {
     runtimeB.seedExternalThread({
       id: created.taskId,
       name: "Recovery task",
-      cwd: "/workspace/codex-feishu-bridge",
+      cwd: TEST_REPO_ROOT,
       status: { type: "idle" },
     });
 

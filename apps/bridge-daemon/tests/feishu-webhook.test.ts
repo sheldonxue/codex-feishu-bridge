@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
-import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 
-import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
+import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { FeishuBridge } from "../src/feishu/bridge";
 import { createCodexRuntime } from "../src/runtime";
 import { createBridgeHttpServer } from "../src/server/http";
 import { BridgeService } from "../src/service/bridge-service";
+import { createTestBridgeConfig } from "./test-paths";
 
 interface RequestRecord {
   method: string;
@@ -90,25 +90,17 @@ async function postWebhook(
 
 async function createHarness(envOverrides: Record<string, string> = {}): Promise<FeishuTestHarness> {
   const namespace = randomUUID();
-  const workspaceRoot = process.cwd();
-  const config = loadBridgeConfig(
-    {
-      WORKSPACE_PATH: workspaceRoot,
-      BRIDGE_PORT: "0",
-      CODEX_RUNTIME_BACKEND: "mock",
-      BRIDGE_STATE_DIR: path.join(".tmp", namespace, "state"),
-      CODEX_HOME: path.join(".tmp", namespace, "codex-home"),
-      BRIDGE_UPLOADS_DIR: path.join(".tmp", namespace, "uploads"),
-      FEISHU_BASE_URL: "https://open.feishu.cn",
-      FEISHU_APP_ID: "cli-app-id",
-      FEISHU_APP_SECRET: "cli-app-secret",
-      FEISHU_VERIFICATION_TOKEN: "verify-token",
-      FEISHU_ENCRYPT_KEY: "encrypt-key",
-      FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
-      ...envOverrides,
-    },
-    workspaceRoot,
-  );
+  const config = createTestBridgeConfig(namespace, {
+    BRIDGE_PORT: "0",
+    CODEX_RUNTIME_BACKEND: "mock",
+    FEISHU_BASE_URL: "https://open.feishu.cn",
+    FEISHU_APP_ID: "cli-app-id",
+    FEISHU_APP_SECRET: "cli-app-secret",
+    FEISHU_VERIFICATION_TOKEN: "verify-token",
+    FEISHU_ENCRYPT_KEY: "encrypt-key",
+    FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
+    ...envOverrides,
+  });
   const logger = createConsoleLogger("feishu-webhook-test");
 
   await prepareBridgeDirectories(config);
