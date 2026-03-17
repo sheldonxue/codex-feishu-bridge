@@ -8,6 +8,7 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexInputItem,
+  CodexModelDescriptor,
   CodexRateLimitSnapshot,
   CodexRuntime,
   CodexRuntimeHealth,
@@ -51,6 +52,10 @@ class FakeStatusRuntime implements CodexRuntime {
       rateLimits: null,
       rateLimitsByLimitId: {},
     };
+  }
+
+  async listModels(): Promise<CodexModelDescriptor[]> {
+    return [];
   }
 
   async startThread(): Promise<CodexThreadDescriptor> {
@@ -134,14 +139,15 @@ class FakeStatusRuntime implements CodexRuntime {
 describe("bridge service runtime status mapping", () => {
   it("maps real thread status objects into bridge task states", async () => {
     const namespace = randomUUID();
+    const workspaceRoot = process.cwd();
     const config = loadBridgeConfig(
       {
-        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
+        WORKSPACE_PATH: workspaceRoot,
         BRIDGE_STATE_DIR: `.tmp/${namespace}/state`,
         CODEX_HOME: `.tmp/${namespace}/codex-home`,
         BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
       },
-      "/workspace/codex-feishu-bridge",
+      workspaceRoot,
     );
     const logger = createConsoleLogger("bridge-service-status-test");
     await prepareBridgeDirectories(config);

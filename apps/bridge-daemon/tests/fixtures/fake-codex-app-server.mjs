@@ -163,6 +163,36 @@ rl.on("line", (line) => {
       });
       return;
     }
+    case "model/list":
+      writeMessage({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          data: [
+            {
+              id: "gpt-5.4",
+              model: "gpt-5.4",
+              displayName: "GPT-5.4",
+              description: "Default bridge model",
+              hidden: false,
+              supportedReasoningEfforts: [
+                { reasoningEffort: "low", description: "Low" },
+                { reasoningEffort: "medium", description: "Medium" },
+                { reasoningEffort: "high", description: "High" },
+              ],
+              defaultReasoningEffort: "medium",
+              inputModalities: ["text"],
+              supportsPersonality: false,
+              upgrade: null,
+              upgradeInfo: null,
+              availabilityNux: null,
+              isDefault: true,
+            },
+          ],
+          nextCursor: null,
+        },
+      });
+      return;
     case "turn/start":
       writeMessage({
         jsonrpc: "2.0",

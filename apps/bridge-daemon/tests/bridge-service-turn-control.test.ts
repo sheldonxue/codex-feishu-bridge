@@ -8,6 +8,7 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexInputItem,
+  CodexModelDescriptor,
   CodexRateLimitSnapshot,
   CodexRuntime,
   CodexRuntimeHealth,
@@ -58,6 +59,10 @@ class DelayedTurnStartRuntime implements CodexRuntime {
       rateLimits: null,
       rateLimitsByLimitId: {},
     };
+  }
+
+  async listModels(): Promise<CodexModelDescriptor[]> {
+    return [];
   }
 
   async startThread(params: { cwd: string; title?: string }): Promise<CodexThreadDescriptor> {

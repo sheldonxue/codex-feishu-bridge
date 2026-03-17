@@ -1,6 +1,9 @@
 export type CodexAuthType = "apiKey" | "chatgpt" | "chatgptAuthTokens";
 export type CodexTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 export type CodexApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export type CodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 
 export interface CodexTextInput {
   type: "text";
@@ -121,6 +124,15 @@ export interface CodexThreadDescriptor {
   status?: unknown;
 }
 
+export interface CodexModelDescriptor {
+  id: string;
+  model: string;
+  displayName: string;
+  isDefault: boolean;
+  supportedReasoningEfforts: CodexReasoningEffort[];
+  defaultReasoningEffort: CodexReasoningEffort;
+}
+
 export interface CodexRuntimeHealth {
   backend: "mock" | "stdio";
   connected: boolean;
@@ -140,11 +152,24 @@ export interface CodexRuntime {
   loginStart(params: CodexLoginStartParams): Promise<CodexLoginStartResult>;
   readAccount(refreshToken?: boolean): Promise<CodexAccountSnapshot>;
   readRateLimits(): Promise<CodexRateLimitSnapshot>;
-  startThread(params: { cwd: string; title?: string }): Promise<CodexThreadDescriptor>;
+  listModels(): Promise<CodexModelDescriptor[]>;
+  startThread(params: {
+    cwd: string;
+    title?: string;
+    model?: string;
+    approvalPolicy?: CodexApprovalPolicy;
+    sandbox?: CodexSandboxMode;
+  }): Promise<CodexThreadDescriptor>;
   listThreads(): Promise<CodexThreadDescriptor[]>;
   readThread(threadId: string): Promise<CodexThreadDescriptor | null>;
   resumeThread(threadId: string): Promise<CodexThreadDescriptor>;
-  startTurn(params: { threadId: string; input: CodexInputItem[] }): Promise<CodexTurnDescriptor>;
+  startTurn(params: {
+    threadId: string;
+    input: CodexInputItem[];
+    model?: string;
+    effort?: CodexReasoningEffort;
+    approvalPolicy?: CodexApprovalPolicy;
+  }): Promise<CodexTurnDescriptor>;
   steerTurn(params: {
     threadId: string;
     turnId: string;

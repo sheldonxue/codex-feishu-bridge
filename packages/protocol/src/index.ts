@@ -36,12 +36,22 @@ export type ApprovalState = "pending" | "accepted" | "declined" | "cancelled" | 
 export type DesktopClientKind = "vscode-extension" | "cli-wrapper" | "diagnostic-client";
 export type FeishuActionKind = "reply" | "steer" | "interrupt" | "approve" | "cancel" | "retry";
 export type MessageAuthor = "user" | "agent" | "system";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 
 export interface FeishuThreadBinding {
   chatId: string;
   threadKey: string;
   rootMessageId?: string;
   webhookTenantKey?: string;
+}
+
+export interface TaskExecutionProfile {
+  model?: string;
+  effort?: ReasoningEffort;
+  sandbox?: SandboxMode;
+  approvalPolicy?: ApprovalPolicy;
 }
 
 export interface ImageAsset {
@@ -92,6 +102,7 @@ export interface BridgeTask {
   status: TaskStatus;
   activeTurnId?: string;
   latestSummary?: string;
+  executionProfile: TaskExecutionProfile;
   feishuBinding?: FeishuThreadBinding;
   feishuBindingDisabled?: boolean;
   pendingApprovals: QueuedApproval[];
@@ -122,6 +133,7 @@ export interface BridgeTaskSeed {
   title: string;
   workspaceRoot: string;
   mode: TaskMode;
+  executionProfile?: TaskExecutionProfile;
   createdAt?: string;
 }
 
@@ -135,6 +147,7 @@ export function createBridgeTask(seed: BridgeTaskSeed): BridgeTask {
     title: seed.title,
     workspaceRoot: seed.workspaceRoot,
     status: "idle",
+    executionProfile: structuredClone(seed.executionProfile ?? {}),
     feishuBindingDisabled: false,
     pendingApprovals: [],
     diffs: [],

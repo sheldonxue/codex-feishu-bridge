@@ -10,13 +10,11 @@ import { StdioCodexRuntime } from "../src/runtime/stdio-codex-runtime";
 describe("stdio runtime compatibility", () => {
   it("normalizes live-shaped responses and sends expectedTurnId for steer", async () => {
     const namespace = randomUUID();
-    const fixturePath = path.resolve(
-      "/workspace/codex-feishu-bridge",
-      "apps/bridge-daemon/tests/fixtures/fake-codex-app-server.mjs",
-    );
+    const workspaceRoot = process.cwd();
+    const fixturePath = path.resolve(workspaceRoot, "apps/bridge-daemon/tests/fixtures/fake-codex-app-server.mjs");
     const config = loadBridgeConfig(
       {
-        WORKSPACE_PATH: "/workspace/codex-feishu-bridge",
+        WORKSPACE_PATH: workspaceRoot,
         CODEX_RUNTIME_BACKEND: "stdio",
         CODEX_APP_SERVER_BIN: process.execPath,
         CODEX_APP_SERVER_ARGS: fixturePath,
@@ -24,7 +22,7 @@ describe("stdio runtime compatibility", () => {
         CODEX_HOME: `.tmp/${namespace}/codex-home`,
         BRIDGE_UPLOADS_DIR: `.tmp/${namespace}/uploads`,
       },
-      "/workspace/codex-feishu-bridge",
+      workspaceRoot,
     );
     const logger = createConsoleLogger("stdio-runtime-test");
 
@@ -45,6 +43,11 @@ describe("stdio runtime compatibility", () => {
       const rateLimits = await runtime.readRateLimits();
       assert.equal(rateLimits.rateLimits?.limitId, "codex");
 
+      const models = await runtime.listModels();
+      assert.equal(models.length, 1);
+      assert.equal(models[0]?.id, "gpt-5.4");
+      assert.deepEqual(models[0]?.supportedReasoningEfforts, ["low", "medium", "high"]);
+
       const listed = await runtime.listThreads();
       assert.equal(listed.length, 1);
       assert.equal(listed[0].id, "thread-live-shape");
@@ -57,14 +60,20 @@ describe("stdio runtime compatibility", () => {
       assert.equal(resumed.updatedAt, "2026-03-16T22:46:40.000Z");
 
       const startedThread = await runtime.startThread({
-        cwd: "/workspace/codex-feishu-bridge",
+        cwd: workspaceRoot,
         title: "Bridge Runtime Task",
+        model: "gpt-5.4",
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write",
       });
       assert.equal(startedThread.id, "thread-created");
 
       const startedTurn = await runtime.startTurn({
         threadId: startedThread.id,
         input: [{ type: "text", text: "Say hello" }],
+        model: "gpt-5.4",
+        effort: "high",
+        approvalPolicy: "never",
       });
       assert.equal(startedTurn.threadId, startedThread.id);
 
@@ -84,6 +93,14 @@ describe("stdio runtime compatibility", () => {
         {},
       );
       const steerRequest = requestProbe.requests.find((entry) => entry.method === "turn/steer");
+      const threadStartRequest = requestProbe.requests.find((entry) => entry.method === "thread/start");
+      const turnStartRequest = requestProbe.requests.find((entry) => entry.method === "turn/start");
+      assert.equal(threadStartRequest?.params?.model, "gpt-5.4");
+      assert.equal(threadStartRequest?.params?.approvalPolicy, "on-request");
+      assert.equal(threadStartRequest?.params?.sandbox, "workspace-write");
+      assert.equal(turnStartRequest?.params?.model, "gpt-5.4");
+      assert.equal(turnStartRequest?.params?.effort, "high");
+      assert.equal(turnStartRequest?.params?.approvalPolicy, "never");
       assert.equal(steerRequest?.params?.expectedTurnId, startedTurn.id);
       assert.equal(steerRequest?.params?.turnId, undefined);
 

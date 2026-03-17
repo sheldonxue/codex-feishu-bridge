@@ -3,13 +3,17 @@ import type { BridgeConfig, Logger } from "@codex-feishu-bridge/shared";
 import { JsonRpcStdioClient } from "./json-rpc-stdio-client";
 import type {
   CodexAccountSnapshot,
+  CodexApprovalPolicy,
   CodexInputItem,
   CodexLoginStartParams,
   CodexLoginStartResult,
+  CodexModelDescriptor,
+  CodexReasoningEffort,
   CodexRateLimitSnapshot,
   CodexRuntime,
   CodexRuntimeHealth,
   CodexRuntimeNotification,
+  CodexSandboxMode,
   CodexTurnDescriptor,
   CodexThreadDescriptor,
 } from "./types";
@@ -28,6 +32,17 @@ interface RawCodexThreadDescriptor {
   createdAt?: string | number | null;
   updatedAt?: string | number | null;
   status?: unknown;
+}
+
+interface RawCodexModelDescriptor {
+  id: string;
+  model: string;
+  displayName: string;
+  isDefault: boolean;
+  supportedReasoningEfforts?: Array<{
+    reasoningEffort?: CodexReasoningEffort;
+  }>;
+  defaultReasoningEffort: CodexReasoningEffort;
 }
 
 function normalizeTimestamp(value: string | number | null | undefined): string | undefined {
@@ -80,6 +95,19 @@ function normalizeTurnDescriptor(
   };
 }
 
+function normalizeModelDescriptor(model: RawCodexModelDescriptor): CodexModelDescriptor {
+  return {
+    id: model.id,
+    model: model.model,
+    displayName: model.displayName,
+    isDefault: model.isDefault,
+    supportedReasoningEfforts: (model.supportedReasoningEfforts ?? [])
+      .map((entry) => entry.reasoningEffort)
+      .filter((value): value is CodexReasoningEffort => Boolean(value)),
+    defaultReasoningEffort: model.defaultReasoningEffort,
+  };
+}
+
 export class StdioCodexRuntime implements CodexRuntime {
   readonly backend = "stdio";
   private readonly client: JsonRpcStdioClient;
@@ -115,11 +143,28 @@ export class StdioCodexRuntime implements CodexRuntime {
     return this.client.request<CodexRateLimitSnapshot>("account/rateLimits/read");
   }
 
-  async startThread(params: { cwd: string; title?: string }): Promise<CodexThreadDescriptor> {
+  async listModels(): Promise<CodexModelDescriptor[]> {
+    const response = await this.client.request<{ data?: RawCodexModelDescriptor[]; models?: RawCodexModelDescriptor[] }>(
+      "model/list",
+      {},
+    );
+    return (response.data ?? response.models ?? []).map(normalizeModelDescriptor);
+  }
+
+  async startThread(params: {
+    cwd: string;
+    title?: string;
+    model?: string;
+    approvalPolicy?: CodexApprovalPolicy;
+    sandbox?: CodexSandboxMode;
+  }): Promise<CodexThreadDescriptor> {
     const response = await this.client.request<{ thread: RawCodexThreadDescriptor }>("thread/start", {
       cwd: params.cwd,
       serviceName: "codex_feishu_bridge",
       ...(params.title ? { title: params.title } : {}),
+      ...(params.model ? { model: params.model } : {}),
+      ...(params.approvalPolicy ? { approvalPolicy: params.approvalPolicy } : {}),
+      ...(params.sandbox ? { sandbox: params.sandbox } : {}),
     });
     return normalizeThreadDescriptor(response.thread);
   }
@@ -147,7 +192,13 @@ export class StdioCodexRuntime implements CodexRuntime {
     return normalizeThreadDescriptor(response.thread);
   }
 
-  async startTurn(params: { threadId: string; input: CodexInputItem[] }): Promise<CodexTurnDescriptor> {
+  async startTurn(params: {
+    threadId: string;
+    input: CodexInputItem[];
+    model?: string;
+    effort?: CodexReasoningEffort;
+    approvalPolicy?: CodexApprovalPolicy;
+  }): Promise<CodexTurnDescriptor> {
     const response = await this.client.request<{ turn: RawCodexTurnDescriptor }>("turn/start", params);
     return normalizeTurnDescriptor(response.turn, params.threadId);
   }

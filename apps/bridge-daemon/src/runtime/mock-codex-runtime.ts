@@ -6,13 +6,17 @@ import type { BridgeConfig, Logger } from "@codex-feishu-bridge/shared";
 import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexApprovalPolicy,
   CodexInputItem,
   CodexLoginStartParams,
   CodexLoginStartResult,
+  CodexModelDescriptor,
   CodexRateLimitSnapshot,
   CodexRuntime,
   CodexRuntimeHealth,
   CodexRuntimeNotification,
+  CodexReasoningEffort,
+  CodexSandboxMode,
   CodexThreadDescriptor,
   CodexThreadItem,
   CodexTurnDescriptor,
@@ -57,6 +61,25 @@ function buildAgentMessage(text: string): CodexThreadItem {
     phase: "final_answer",
   };
 }
+
+const MOCK_MODELS: CodexModelDescriptor[] = [
+  {
+    id: "gpt-5.4",
+    model: "gpt-5.4",
+    displayName: "GPT-5.4",
+    isDefault: true,
+    supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-5.4-mini",
+    model: "gpt-5.4-mini",
+    displayName: "GPT-5.4 Mini",
+    isDefault: false,
+    supportedReasoningEfforts: ["minimal", "low", "medium", "high"],
+    defaultReasoningEffort: "low",
+  },
+];
 
 export class MockCodexRuntime implements CodexRuntime {
   readonly backend = "mock";
@@ -158,7 +181,17 @@ export class MockCodexRuntime implements CodexRuntime {
     };
   }
 
-  async startThread(params: { cwd: string; title?: string }): Promise<CodexThreadDescriptor> {
+  async listModels(): Promise<CodexModelDescriptor[]> {
+    return structuredClone(MOCK_MODELS);
+  }
+
+  async startThread(params: {
+    cwd: string;
+    title?: string;
+    model?: string;
+    approvalPolicy?: CodexApprovalPolicy;
+    sandbox?: CodexSandboxMode;
+  }): Promise<CodexThreadDescriptor> {
     const threadId = `thr_${randomUUID()}`;
     const thread = this.seedExternalThread({
       id: threadId,
@@ -204,7 +237,13 @@ export class MockCodexRuntime implements CodexRuntime {
     return descriptor;
   }
 
-  async startTurn(params: { threadId: string; input: CodexInputItem[] }): Promise<CodexTurnDescriptor> {
+  async startTurn(params: {
+    threadId: string;
+    input: CodexInputItem[];
+    model?: string;
+    effort?: CodexReasoningEffort;
+    approvalPolicy?: CodexApprovalPolicy;
+  }): Promise<CodexTurnDescriptor> {
     const threadState = this.requireThread(params.threadId);
     const turnId = `turn_${randomUUID()}`;
     const turn: CodexTurnDescriptor = {

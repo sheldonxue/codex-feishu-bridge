@@ -14,6 +14,7 @@ import {
   type ImageAsset,
   type MessageAuthor,
   type QueuedApproval,
+  type TaskExecutionProfile,
   type TaskDiffEntry,
   type TaskStatus,
 } from "@codex-feishu-bridge/protocol";
@@ -30,6 +31,7 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexInputItem,
+  CodexModelDescriptor,
   CodexRateLimitSnapshot,
   CodexRuntime,
   CodexRuntimeNotification,
@@ -61,6 +63,7 @@ export interface CreateTaskRequest {
   workspaceRoot?: string;
   prompt?: string;
   imageAssetIds?: string[];
+  executionProfile?: TaskExecutionProfile;
 }
 
 export interface TaskMessageRequest {
@@ -89,8 +92,26 @@ interface PendingTurnStart {
   resolve: () => void;
 }
 
+function normalizeExecutionProfile(profile: TaskExecutionProfile | undefined): TaskExecutionProfile {
+  return {
+    ...(profile?.model ? { model: profile.model } : {}),
+    ...(profile?.effort ? { effort: profile.effort } : {}),
+    ...(profile?.sandbox ? { sandbox: profile.sandbox } : {}),
+    ...(profile?.approvalPolicy ? { approvalPolicy: profile.approvalPolicy } : {}),
+  };
+}
+
+function hydratePersistedTask(task: BridgeTask): BridgeTask {
+  const hydratedTask = structuredClone(task);
+  hydratedTask.executionProfile = normalizeExecutionProfile(task.executionProfile);
+  hydratedTask.feishuBindingDisabled = task.feishuBindingDisabled ?? false;
+  hydrateTaskDiffs(hydratedTask);
+  return hydratedTask;
+}
+
 function cloneTask(task: BridgeTask): BridgeTask {
   const clonedTask = structuredClone(task);
+  clonedTask.executionProfile = normalizeExecutionProfile(clonedTask.executionProfile);
   hydrateTaskDiffs(clonedTask);
   return clonedTask;
 }
@@ -346,7 +367,7 @@ export class BridgeService {
 
     this.seq = persisted.seq;
     for (const task of persisted.tasks) {
-      this.tasks.set(task.taskId, task);
+      this.tasks.set(task.taskId, hydratePersistedTask(task));
     }
 
     this.unsubscribeRuntime = this.options.runtime.onNotification((notification) => {
@@ -392,6 +413,10 @@ export class BridgeService {
     return task ? cloneTask(task) : null;
   }
 
+  async listModels(): Promise<CodexModelDescriptor[]> {
+    return this.options.runtime.listModels();
+  }
+
   findTaskByFeishuBinding(chatId: string | undefined, lookupIds: string[]): BridgeTask | null {
     if (lookupIds.length === 0) {
       return null;
@@ -425,11 +450,15 @@ export class BridgeService {
     const descriptor = await this.options.runtime.startThread({
       cwd: workspaceRoot,
       title: request.title,
+      model: request.executionProfile?.model,
+      approvalPolicy: request.executionProfile?.approvalPolicy,
+      sandbox: request.executionProfile?.sandbox,
     });
 
     let task = this.upsertTaskFromDescriptor(descriptor, "bridge-managed");
     task.title = request.title || task.title;
     task.workspaceRoot = workspaceRoot;
+    task.executionProfile = normalizeExecutionProfile(request.executionProfile);
     this.touchTask(task);
     await this.persistState();
     this.emitEvent(task.taskId, "task.created", { task: cloneTask(task) });
@@ -487,6 +516,9 @@ export class BridgeService {
       const turn = await this.options.runtime.startTurn({
         threadId: task.threadId,
         input,
+        model: task.executionProfile.model,
+        effort: task.executionProfile.effort,
+        approvalPolicy: task.executionProfile.approvalPolicy,
       });
       this.trackPendingTurnStart(turn.id);
       task.activeTurnId = task.activeTurnId ?? turn.id;
@@ -906,6 +938,7 @@ export class BridgeService {
       existing.title = descriptor.name ?? existing.title;
       existing.workspaceRoot = descriptor.cwd ?? existing.workspaceRoot;
       existing.status = mapRuntimeStatus(descriptor.status);
+      existing.executionProfile = normalizeExecutionProfile(existing.executionProfile);
       this.touchTask(existing, descriptor.updatedAt);
       return existing;
     }
@@ -916,6 +949,7 @@ export class BridgeService {
       workspaceRoot: descriptor.cwd ?? this.options.config.workspaceRoot,
       mode,
       createdAt: descriptor.updatedAt ?? new Date().toISOString(),
+      executionProfile: {},
     });
     task.status = mapRuntimeStatus(descriptor.status);
     this.tasks.set(task.taskId, task);

@@ -8,36 +8,36 @@ import { describe, it } from "node:test";
 import { createConsoleLogger, loadBridgeConfig, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
 
 import { FeishuBridge } from "../src/feishu/bridge";
-import { createBridgeHttpServer } from "../src/server/http";
 import { createCodexRuntime } from "../src/runtime";
+import { createBridgeHttpServer } from "../src/server/http";
 import { BridgeService } from "../src/service/bridge-service";
+
+interface RequestRecord {
+  method: string;
+  url: string;
+  body?: string;
+}
 
 interface FeishuTestHarness {
   baseUrl: string;
   calls: string[];
-  requests: Array<{ method: string; url: string; body?: string }>;
+  requests: RequestRecord[];
   cleanup: () => Promise<void>;
   runtime: ReturnType<typeof createCodexRuntime>;
   service: BridgeService;
 }
 
-function textInputs(
-  input: Array<{ type: string; text?: string }>,
-): string[] {
-  return input.filter((item): item is { type: "text"; text: string } => item.type === "text" && Boolean(item.text)).map((item) => item.text);
-}
-
-function approvalDecisionValue(result: unknown): string | undefined {
-  if (typeof result === "string") {
-    return result;
+function parseMessageText(request: RequestRecord): string {
+  const payload = JSON.parse(request.body ?? "{}") as { content?: string };
+  if (!payload.content) {
+    return "";
   }
 
-  if (result && typeof result === "object" && "decision" in result) {
-    const decision = (result as { decision?: unknown }).decision;
-    return typeof decision === "string" ? decision : undefined;
+  try {
+    return (JSON.parse(payload.content) as { text?: string }).text ?? "";
+  } catch {
+    return "";
   }
-
-  return undefined;
 }
 
 async function waitFor(check: () => boolean, message: string): Promise<void> {
@@ -69,8 +69,7 @@ async function postWebhook(
   const rawBody = JSON.stringify(body);
   const timestamp = options?.timestamp ?? `${Math.floor(Date.now() / 1000)}`;
   const nonce = options?.nonce ?? `nonce-${randomUUID()}`;
-  const signature =
-    options?.signature ?? signWebhook(rawBody, "encrypt-key", timestamp, nonce);
+  const signature = options?.signature ?? signWebhook(rawBody, "encrypt-key", timestamp, nonce);
 
   const response = await fetch(`${harness.baseUrl}/feishu/webhook`, {
     method: "POST",
@@ -89,9 +88,7 @@ async function postWebhook(
   };
 }
 
-async function createHarness(
-  envOverrides: Record<string, string> = {},
-): Promise<FeishuTestHarness> {
+async function createHarness(envOverrides: Record<string, string> = {}): Promise<FeishuTestHarness> {
   const namespace = randomUUID();
   const workspaceRoot = process.cwd();
   const config = loadBridgeConfig(
@@ -112,12 +109,12 @@ async function createHarness(
     },
     workspaceRoot,
   );
-  const logger = createConsoleLogger("feishu-bridge-test");
+  const logger = createConsoleLogger("feishu-webhook-test");
 
   await prepareBridgeDirectories(config);
 
   const calls: string[] = [];
-  const requests: Array<{ method: string; url: string; body?: string }> = [];
+  const requests: RequestRecord[] = [];
   const originalFetch = global.fetch;
   global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -136,38 +133,21 @@ async function createHarness(
     }
 
     if (url.endsWith("/open-apis/auth/v3/tenant_access_token/internal")) {
-      return new Response(
-        JSON.stringify({
-          code: 0,
-          tenant_access_token: "tenant-token",
-          expire: 7200,
-        }),
-        { status: 200 },
-      );
-    }
-
-    if (url.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")) {
-      return new Response(
-        JSON.stringify({
-          code: 0,
-          data: {
-            message_id: `om_root_${calls.length}`,
-          },
-        }),
-        { status: 200 },
-      );
+      return new Response(JSON.stringify({ code: 0, tenant_access_token: "tenant-token", expire: 7200 }), {
+        status: 200,
+      });
     }
 
     if (url.includes("/open-apis/im/v1/messages/")) {
-      return new Response(
-        JSON.stringify({
-          code: 0,
-          data: {
-            message_id: `om_reply_${calls.length}`,
-          },
-        }),
-        { status: 200 },
-      );
+      return new Response(JSON.stringify({ code: 0, data: { message_id: `om_reply_${requests.length}` } }), {
+        status: 200,
+      });
+    }
+
+    if (url.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")) {
+      return new Response(JSON.stringify({ code: 0, data: { message_id: `om_root_${requests.length}` } }), {
+        status: 200,
+      });
     }
 
     throw new Error(`Unexpected fetch: ${url}`);
@@ -219,26 +199,8 @@ async function createHarness(
   }
 }
 
-async function waitForRootMessageId(service: BridgeService, taskId: string): Promise<string> {
-  await waitFor(() => Boolean(service.getTask(taskId)?.feishuBinding?.rootMessageId), `task ${taskId} Feishu binding`);
-  return service.getTask(taskId)?.feishuBinding?.rootMessageId ?? "";
-}
-
-async function waitForPendingApproval(service: BridgeService, taskId: string): Promise<string> {
-  await waitFor(
-    () => service.getTask(taskId)?.pendingApprovals.some((approval) => approval.state === "pending") ?? false,
-    `task ${taskId} pending approval`,
-  );
-  return (
-    service
-      .getTask(taskId)
-      ?.pendingApprovals.find((approval) => approval.state === "pending")
-      ?.requestId ?? ""
-  );
-}
-
 describe("feishu bridge", { concurrency: 1 }, () => {
-  it("requires full live webhook configuration before enabling the bridge", async () => {
+  it("requires full live webhook configuration before enabling the bridge and does not auto-bind local tasks", async () => {
     const harness = await createHarness({
       FEISHU_VERIFICATION_TOKEN: "",
       FEISHU_ENCRYPT_KEY: "",
@@ -273,121 +235,124 @@ describe("feishu bridge", { concurrency: 1 }, () => {
     }
   });
 
-  it("binds new tasks to feishu root messages, routes webhook replies, and dedupes repeated events", async () => {
+  it("creates tasks through /new over webhook, binds the current thread, and routes follow-up text back into the same task", async () => {
     const harness = await createHarness();
-    const approvalDecisions: Array<{ requestId: number | string; result: unknown }> = [];
-    const originalRespondToRequest = harness.runtime.respondToRequest.bind(harness.runtime);
-    harness.runtime.respondToRequest = async (requestId, result) => {
-      approvalDecisions.push({ requestId, result });
-      await originalRespondToRequest(requestId, result);
-    };
 
     try {
-      const task = await harness.service.createTask({
-        title: "Feishu task",
-        prompt: "Please edit the file and patch it.",
-      });
-
-      const rootMessageId = await waitForRootMessageId(harness.service, task.taskId);
-      await waitForPendingApproval(harness.service, task.taskId);
-      assert.match(rootMessageId, /^om_root_/);
-      assert.ok(harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")));
-
-      const accepted = await postWebhook(harness, {
+      await postWebhook(harness, {
         header: {
-          event_id: "evt_1",
+          event_id: "evt_new",
           event_type: "im.message.receive_v1",
           token: "verify-token",
         },
         event: {
           sender: {
             sender_id: {
-              open_id: "ou_sender",
+              open_id: "ou_new",
             },
           },
           message: {
-            message_id: "om_reply_request",
-            root_id: rootMessageId,
+            message_id: "om_new",
+            root_id: "om_root_webhook",
+            thread_id: "omt_webhook",
             chat_id: "oc_chat_id",
             message_type: "text",
-            content: JSON.stringify({ text: "approve" }),
+            content: JSON.stringify({ text: "/new" }),
           },
         },
       });
-      assert.equal(accepted.body.ok, true);
 
-      await waitFor(
-        () => approvalDecisions.some((entry) => approvalDecisionValue(entry.result) === "accept"),
-        `task ${task.taskId} approval routing`,
-      );
-      assert.equal(approvalDecisionValue(approvalDecisions.at(-1)?.result), "accept");
-      assert.ok(harness.calls.some((entry) => entry.includes(`/open-apis/im/v1/messages/${rootMessageId}/reply`)));
-
-      const deduped = await postWebhook(
-        harness,
-        {
-          header: {
-            event_id: "evt_1",
-            event_type: "im.message.receive_v1",
-            token: "verify-token",
-          },
-          event: {
-            sender: {
-              sender_id: {
-                open_id: "ou_sender",
-              },
-            },
-            message: {
-              message_id: "om_reply_request",
-              root_id: rootMessageId,
-              chat_id: "oc_chat_id",
-              message_type: "text",
-              content: JSON.stringify({ text: "approve" }),
+      await postWebhook(harness, {
+        header: {
+          event_id: "evt_prompt",
+          event_type: "im.message.receive_v1",
+          token: "verify-token",
+        },
+        event: {
+          sender: {
+            sender_id: {
+              open_id: "ou_new",
             },
           },
+          message: {
+            message_id: "om_prompt",
+            root_id: "om_root_webhook",
+            thread_id: "omt_webhook",
+            chat_id: "oc_chat_id",
+            message_type: "text",
+            content: JSON.stringify({ text: "/new prompt hello from webhook" }),
+          },
         },
-        {
-          nonce: "nonce-value",
-          timestamp: "1700000000",
-        },
-      );
-      assert.equal(deduped.body.deduped, true);
-    } finally {
-      await harness.cleanup();
-    }
-  });
-
-  it("creates one root thread and keeps startup follow-ups in the same feishu thread", async () => {
-    const harness = await createHarness();
-
-    try {
-      const task = await harness.service.createTask({
-        title: "Feishu thread stability task",
-        prompt: "Reply with a short acknowledgement.",
       });
 
-      const rootMessageId = await waitForRootMessageId(harness.service, task.taskId);
+      await postWebhook(harness, {
+        header: {
+          event_id: "evt_create",
+          event_type: "im.message.receive_v1",
+          token: "verify-token",
+        },
+        event: {
+          sender: {
+            sender_id: {
+              open_id: "ou_new",
+            },
+          },
+          message: {
+            message_id: "om_create",
+            root_id: "om_root_webhook",
+            thread_id: "omt_webhook",
+            chat_id: "oc_chat_id",
+            message_type: "text",
+            content: JSON.stringify({ text: "/new create" }),
+          },
+        },
+      });
+
+      await waitFor(() => harness.service.listTasks().length === 1, "webhook task creation");
+      const createdTask = harness.service.listTasks()[0];
+      assert.ok(createdTask);
+      assert.equal(createdTask?.feishuBinding?.threadKey, "omt_webhook");
+      assert.equal(
+        harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
+        false,
+      );
       await waitFor(
-        () =>
-          harness.requests.some((request) =>
-            request.url.includes(`/open-apis/im/v1/messages/${rootMessageId}/reply`),
-          ),
-        `task ${task.taskId} in-thread reply`,
+        () => harness.requests.some((request) => parseMessageText(request).includes("Mock response for: hello from webhook")),
+        "webhook final agent reply",
       );
 
-      const rootRequests = harness.requests.filter((request) =>
-        request.url.includes("/open-apis/im/v1/messages?receive_id_type=chat_id"),
-      );
-      assert.equal(rootRequests.length, 1);
+      const previousConversationLength = harness.service.getTask(createdTask!.taskId)?.conversation.length ?? 0;
+      await postWebhook(harness, {
+        header: {
+          event_id: "evt_follow_up",
+          event_type: "im.message.receive_v1",
+          token: "verify-token",
+        },
+        event: {
+          sender: {
+            sender_id: {
+              open_id: "ou_new",
+            },
+          },
+          message: {
+            message_id: "om_follow_up",
+            root_id: "om_root_webhook",
+            thread_id: "omt_webhook",
+            chat_id: "oc_chat_id",
+            message_type: "text",
+            content: JSON.stringify({ text: "second webhook prompt" }),
+          },
+        },
+      });
 
-      const replyRequests = harness.requests.filter((request) =>
-        request.url.includes(`/open-apis/im/v1/messages/${rootMessageId}/reply`),
+      await waitFor(
+        () => (harness.service.getTask(createdTask!.taskId)?.conversation.length ?? 0) > previousConversationLength,
+        "follow-up routing",
       );
-      assert.ok(replyRequests.length >= 1);
-      for (const request of replyRequests) {
-        const body = JSON.parse(request.body ?? "{}") as { reply_in_thread?: boolean };
-        assert.equal(body.reply_in_thread, true);
-      }
+      await waitFor(
+        () => harness.requests.some((request) => parseMessageText(request).includes("Mock response for: second webhook prompt")),
+        "follow-up final reply",
+      );
     } finally {
       await harness.cleanup();
     }
@@ -407,7 +372,7 @@ describe("feishu bridge", { concurrency: 1 }, () => {
           message: {
             message_id: "om_invalid",
             message_type: "text",
-            content: JSON.stringify({ text: "approve" }),
+            content: JSON.stringify({ text: "/new" }),
           },
         },
       });
@@ -424,7 +389,7 @@ describe("feishu bridge", { concurrency: 1 }, () => {
           message: {
             message_id: "om_invalid_signature",
             message_type: "text",
-            content: JSON.stringify({ text: "approve" }),
+            content: JSON.stringify({ text: "/new" }),
           },
         },
       });
@@ -445,182 +410,59 @@ describe("feishu bridge", { concurrency: 1 }, () => {
     }
   });
 
-  it("routes decline, cancel, interrupt, and retry webhook commands to the bound task", async () => {
+  it("routes slash approval commands to an explicitly bound task without creating new thread roots", async () => {
     const harness = await createHarness();
     const approvalDecisions: Array<{ requestId: number | string; result: unknown }> = [];
-    const interruptCalls: Array<{ threadId: string; turnId?: string }> = [];
-    const messageCalls: Array<{ kind: "start" | "steer"; texts: string[] }> = [];
-
     const originalRespondToRequest = harness.runtime.respondToRequest.bind(harness.runtime);
     harness.runtime.respondToRequest = async (requestId, result) => {
       approvalDecisions.push({ requestId, result });
       await originalRespondToRequest(requestId, result);
     };
 
-    const originalInterruptTurn = harness.runtime.interruptTurn.bind(harness.runtime);
-    harness.runtime.interruptTurn = async (params) => {
-      interruptCalls.push(params);
-      await originalInterruptTurn(params);
-    };
-
-    const originalStartTurn = harness.runtime.startTurn.bind(harness.runtime);
-    harness.runtime.startTurn = async (params) => {
-      messageCalls.push({
-        kind: "start",
-        texts: textInputs(params.input),
-      });
-      return originalStartTurn(params);
-    };
-
-    const originalSteerTurn = harness.runtime.steerTurn.bind(harness.runtime);
-    harness.runtime.steerTurn = async (params) => {
-      messageCalls.push({
-        kind: "steer",
-        texts: textInputs(params.input),
-      });
-      return originalSteerTurn(params);
-    };
-
     try {
-      const declineTask = await harness.service.createTask({
-        title: "Decline task",
+      const task = await harness.service.createTask({
+        title: "Approval task",
         prompt: "Please edit the file and patch it.",
       });
-      const declineRootId = await waitForRootMessageId(harness.service, declineTask.taskId);
-      await waitForPendingApproval(harness.service, declineTask.taskId);
-      const decisionCountBeforeDecline = approvalDecisions.length;
-      await postWebhook(harness, {
-        header: {
-          event_id: "evt_decline",
-          event_type: "im.message.receive_v1",
-          token: "verify-token",
-        },
-        event: {
-          sender: {
-            sender_id: {
-              open_id: "ou_decline",
-            },
-          },
-          message: {
-            message_id: "om_decline",
-            root_id: declineRootId,
-            chat_id: "oc_chat_id",
-            message_type: "text",
-            content: JSON.stringify({ text: "decline" }),
-          },
-        },
-      });
-      await waitFor(() => approvalDecisions.length > decisionCountBeforeDecline, "decline approval decision");
-      assert.equal(approvalDecisionValue(approvalDecisions.at(-1)?.result), "decline");
       await waitFor(
-        () => harness.service.getTask(declineTask.taskId)?.pendingApprovals[0]?.state === "declined",
-        `task ${declineTask.taskId} decline state`,
+        () => (harness.service.getTask(task.taskId)?.pendingApprovals.length ?? 0) > 0,
+        "pending approval",
       );
+      await harness.service.bindFeishuThread(task.taskId, {
+        chatId: "oc_chat_id",
+        threadKey: "omt_bound",
+        rootMessageId: "om_root_bound",
+      });
 
-      const cancelTask = await harness.service.createTask({
-        title: "Cancel task",
-        prompt: "Please edit the file and patch it.",
-      });
-      const cancelRootId = await waitForRootMessageId(harness.service, cancelTask.taskId);
-      await waitForPendingApproval(harness.service, cancelTask.taskId);
-      const decisionCountBeforeCancel = approvalDecisions.length;
       await postWebhook(harness, {
         header: {
-          event_id: "evt_cancel",
+          event_id: "evt_approve",
           event_type: "im.message.receive_v1",
           token: "verify-token",
         },
         event: {
           sender: {
             sender_id: {
-              open_id: "ou_cancel",
+              open_id: "ou_approve",
             },
           },
           message: {
-            message_id: "om_cancel",
-            root_id: cancelRootId,
+            message_id: "om_approve",
+            root_id: "om_root_bound",
+            thread_id: "omt_bound",
             chat_id: "oc_chat_id",
             message_type: "text",
-            content: JSON.stringify({ text: "cancel" }),
+            content: JSON.stringify({ text: "/approve" }),
           },
         },
       });
-      await waitFor(() => approvalDecisions.length > decisionCountBeforeCancel, "cancel approval decision");
-      assert.equal(approvalDecisionValue(approvalDecisions.at(-1)?.result), "cancel");
-      await waitFor(
-        () => harness.service.getTask(cancelTask.taskId)?.pendingApprovals[0]?.state === "cancelled",
-        `task ${cancelTask.taskId} cancel state`,
-      );
 
-      const interruptTask = await harness.service.createTask({
-        title: "Interrupt task",
-        prompt: "Please edit the file and patch it.",
-      });
-      const interruptRootId = await waitForRootMessageId(harness.service, interruptTask.taskId);
-      await waitForPendingApproval(harness.service, interruptTask.taskId);
-      const interruptCountBefore = interruptCalls.length;
-      await postWebhook(harness, {
-        header: {
-          event_id: "evt_interrupt",
-          event_type: "im.message.receive_v1",
-          token: "verify-token",
-        },
-        event: {
-          sender: {
-            sender_id: {
-              open_id: "ou_interrupt",
-            },
-          },
-          message: {
-            message_id: "om_interrupt",
-            root_id: interruptRootId,
-            chat_id: "oc_chat_id",
-            message_type: "text",
-            content: JSON.stringify({ text: "interrupt" }),
-          },
-        },
-      });
-      await waitFor(() => interruptCalls.length > interruptCountBefore, "interrupt routing");
-      assert.equal(interruptCalls.at(-1)?.threadId, interruptTask.taskId);
-      await waitFor(
-        () => harness.service.getTask(interruptTask.taskId)?.activeTurnId === undefined,
-        `task ${interruptTask.taskId} interrupt completion`,
+      await waitFor(() => approvalDecisions.length > 0, "approval routing");
+      assert.deepEqual(approvalDecisions[0]?.result, { decision: "accept" });
+      assert.equal(
+        harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
+        false,
       );
-
-      const retryTask = await harness.service.createTask({
-        title: "Retry task",
-        prompt: "Summarize the current task state.",
-      });
-      const retryRootId = await waitForRootMessageId(harness.service, retryTask.taskId);
-      await waitFor(
-        () => (harness.service.getTask(retryTask.taskId)?.conversation.length ?? 0) >= 2,
-        `task ${retryTask.taskId} initial response`,
-      );
-      const messageCountBeforeRetry = messageCalls.length;
-      await postWebhook(harness, {
-        header: {
-          event_id: "evt_retry",
-          event_type: "im.message.receive_v1",
-          token: "verify-token",
-        },
-        event: {
-          sender: {
-            sender_id: {
-              open_id: "ou_retry",
-            },
-          },
-          message: {
-            message_id: "om_retry",
-            root_id: retryRootId,
-            chat_id: "oc_chat_id",
-            message_type: "text",
-            content: JSON.stringify({ text: "retry continue from mobile" }),
-          },
-        },
-      });
-      await waitFor(() => messageCalls.length > messageCountBeforeRetry, "retry message routing");
-      assert.equal(messageCalls.at(-1)?.texts[0], "continue from mobile");
-      assert.ok(["start", "steer"].includes(messageCalls.at(-1)?.kind ?? ""));
     } finally {
       await harness.cleanup();
     }
