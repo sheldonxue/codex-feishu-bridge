@@ -17,7 +17,8 @@ The OpenAI VSCode extension is not required as the runtime authority for this pr
 
 Common mobile scenarios include:
 
-- start a new Codex thread directly from the Feishu app while away from the desk
+- create a new topic or post a plain-text message in a bot-enabled Feishu group while away from the desk
+- start a new remote Codex thread from that conversation
 - keep pushing the work forward through plain-text conversation on the phone
 - get the result without first returning to the workstation
 
