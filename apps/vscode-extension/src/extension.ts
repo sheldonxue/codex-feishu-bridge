@@ -339,6 +339,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context,
     client,
     store: services.store,
+    sendMessage: async (taskId, payload) => sendTaskMessage(services, taskId, payload),
     setShowLocalImportedTasks: async (enabled) => {
       treeProvider.setShowLocalImportedTasks(enabled);
     },

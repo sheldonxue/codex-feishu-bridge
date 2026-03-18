@@ -11,7 +11,8 @@ describe("task monitor view source", () => {
     const source = readFileSync(sourcePath, "utf8");
 
     assert.match(source, /<button data-action="import-recent-threads">Import Recent Host Threads<\/button>/);
-    assert.match(source, /case "import-recent-threads":\s*vscode\.postMessage\(\{ type: "import-recent-threads" \}\);\s*return;/s);
+    assert.match(source, /id="import-limit"/);
+    assert.match(source, /vscode\.postMessage\(\{ type: "import-recent-threads", limit: importRecentLimit \}\);/);
   });
 
   it("routes destructive local-task actions through the extension host instead of webview confirm", () => {
@@ -28,5 +29,17 @@ describe("task monitor view source", () => {
     assert.match(source, /showWarningMessage\(\s*"Clear all imported local tasks from the bridge monitor\? Host Codex threads in ~\/\.codex will be kept\."/);
     assert.match(source, /showWarningMessage\(\s*"Forget this local task record from the bridge monitor\? The underlying host Codex thread will not be deleted\."/);
     assert.match(source, /showWarningMessage\(\s*"Delete this local task from the bridge monitor and permanently remove the underlying host Codex thread from this computer\?"/);
+  });
+
+  it("renders approvals and diffs as collapsed foldouts and exposes richer composer controls", () => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const sourcePath = path.resolve(currentDir, "../src/panels/task-monitor-view.ts");
+    const source = readFileSync(sourcePath, "utf8");
+
+    assert.match(source, /foldout\("approvals"/);
+    assert.match(source, /foldout\("diffs"/);
+    assert.match(source, /data-action="pick-composer-images">Attach Images<\/button>/);
+    assert.match(source, /data-action="clear-composer"/);
+    assert.match(source, /Ctrl\/Cmd\+Enter/);
   });
 });

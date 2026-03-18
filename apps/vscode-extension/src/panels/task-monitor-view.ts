@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import type { BridgeTask, QueuedApproval } from "@codex-feishu-bridge/protocol";
+import type { BridgeTask, MessageSurface, QueuedApproval } from "@codex-feishu-bridge/protocol";
 
 import { BridgeClient } from "../core/bridge-client";
 import { buildMonitorState, type MonitorViewState } from "../core/monitor-model";
@@ -10,6 +10,15 @@ interface TaskMonitorViewProviderOptions {
   context: vscode.ExtensionContext;
   client: BridgeClient;
   store: TaskStore;
+  sendMessage: (
+    taskId: string,
+    payload: {
+      content: string;
+      imagePaths?: string[];
+      source?: MessageSurface;
+      replyToFeishu?: boolean;
+    },
+  ) => Promise<BridgeTask>;
   openStatus: () => Promise<void>;
   openDiff: (task: BridgeTask, diffPath?: string) => Promise<void>;
   setShowLocalImportedTasks: (enabled: boolean) => Promise<void> | void;
@@ -101,10 +110,12 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
       type?: string;
       taskId?: string;
       content?: string;
+      imagePaths?: string[];
       diffPath?: string;
       requestId?: string;
       decision?: "accept" | "decline" | "cancel";
       enabled?: boolean;
+      limit?: number;
     };
 
     try {
@@ -118,9 +129,11 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           return;
         case "refresh":
           await this.options.store.refresh();
+          await this.postState();
           return;
         case "import-recent-threads": {
-          const imported = await this.options.client.importRecentThreads(8);
+          const limit = Math.max(1, Math.min(50, Math.trunc(payload.limit ?? 8) || 8));
+          const imported = await this.options.client.importRecentThreads(limit);
           await this.options.store.refresh();
           if (imported[0]) {
             await this.focusTask(imported[0].taskId);
@@ -157,15 +170,41 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         case "send-message": {
           const task = this.getTask(payload.taskId);
           const content = payload.content?.trim();
-          if (!task || !content) {
+          if (!task || (!content && !(payload.imagePaths?.length))) {
             return;
           }
-          await this.options.client.sendMessage(task.taskId, {
-            content,
+          await this.options.sendMessage(task.taskId, {
+            content: content ?? "",
+            imagePaths: payload.imagePaths ?? [],
             source: "vscode",
             replyToFeishu: task.feishuBinding ? task.desktopReplySyncToFeishu : false,
           });
-          await this.options.store.refresh();
+          await this.postWebviewMessage({
+            type: "composer-cleared",
+            taskId: task.taskId,
+          });
+          return;
+        }
+        case "pick-composer-images": {
+          const task = this.getTask(payload.taskId);
+          if (!task) {
+            return;
+          }
+          const files = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            openLabel: "Attach images",
+            filters: {
+              Images: ["png", "jpg", "jpeg", "gif", "webp"],
+            },
+          });
+          if (!files?.length) {
+            return;
+          }
+          await this.postWebviewMessage({
+            type: "composer-images-selected",
+            taskId: task.taskId,
+            imagePaths: files.map((file) => file.fsPath),
+          });
           return;
         }
         case "interrupt": {
@@ -182,12 +221,11 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           if (!task) {
             return;
           }
-          await this.options.client.sendMessage(task.taskId, {
+          await this.options.sendMessage(task.taskId, {
             content: "Retry the last turn and continue.",
             source: "vscode",
             replyToFeishu: task.feishuBinding ? task.desktopReplySyncToFeishu : false,
           });
-          await this.options.store.refresh();
           return;
         }
         case "toggle-feishu-sync": {
@@ -293,6 +331,13 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
     await this.options.context.workspaceState.update(TaskMonitorViewProvider.selectedTaskStorageKey, taskId);
   }
 
+  private async postWebviewMessage(message: Record<string, unknown>): Promise<void> {
+    if (!this.view) {
+      return;
+    }
+    await this.view.webview.postMessage(message);
+  }
+
   private async postState(): Promise<void> {
     if (!this.view) {
       return;
@@ -394,6 +439,7 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
+        align-items: center;
       }
       .chip {
         display: inline-flex;
@@ -458,13 +504,15 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         gap: 8px;
       }
       .task-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
-        justify-content: space-between;
         gap: 10px;
         border: 1px solid var(--border);
         border-radius: 14px;
         padding: 10px 12px;
+        width: 100%;
+        text-align: left;
       }
       .task-row.selected {
         background: var(--accent-soft);
@@ -480,12 +528,16 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .task-row .meta span {
+        text-align: left;
+      }
       .conversation {
         display: grid;
         gap: 10px;
-        max-height: 36vh;
+        max-height: 42vh;
         overflow: auto;
         padding-right: 4px;
+        scroll-behavior: auto;
       }
       .message {
         border: 1px solid var(--border);
@@ -520,8 +572,9 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
       }
       textarea {
         width: 100%;
-        min-height: 88px;
-        resize: vertical;
+        min-height: 120px;
+        max-height: 320px;
+        resize: none;
         border-radius: 14px;
         border: 1px solid var(--border);
         padding: 12px;
@@ -529,16 +582,81 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         color: inherit;
         box-sizing: border-box;
       }
+      .composer-shell {
+        display: grid;
+        gap: 12px;
+      }
+      .composer-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .composer-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      .composer-attachments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .composer-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 5px 10px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid var(--border);
+        font-size: 12px;
+      }
+      .inline-input {
+        width: 72px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 8px 10px;
+        background: rgba(255,255,255,0.02);
+        color: inherit;
+      }
       .composer-footer, .sync-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
+        flex-wrap: wrap;
       }
       .toggle {
         display: inline-flex;
         align-items: center;
         gap: 8px;
+      }
+      .foldout {
+        padding: 0;
+        overflow: hidden;
+      }
+      .foldout summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px;
+        cursor: pointer;
+      }
+      .foldout summary::-webkit-details-marker {
+        display: none;
+      }
+      .foldout-body {
+        padding: 0 14px 14px;
+      }
+      .foldout-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
       .approvals, .diffs {
         display: grid;
@@ -568,13 +686,21 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         totalTaskCount: 0,
         hiddenTaskCount: 0,
         showLocalImportedTasks: false,
+        lastUpdatedAt: undefined,
         tasks: [],
         selectedTask: null,
         selectedTaskId: undefined,
         account: null,
         rateLimits: null,
       };
-      let composerDraft = "";
+      let composerDrafts = {};
+      let composerImagePaths = {};
+      let importRecentLimit = 8;
+      let sectionState = {
+        approvals: false,
+        diffs: false,
+      };
+      let conversationScrollByTask = {};
 
       function escapeHtml(value) {
         return String(value ?? "")
@@ -587,6 +713,94 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
 
       function pre(value) {
         return \`<pre>\${escapeHtml(value)}</pre>\`;
+      }
+
+      function currentTaskId() {
+        return state.selectedTask?.taskId ?? state.selectedTaskId;
+      }
+
+      function currentComposerDraft() {
+        const taskId = currentTaskId();
+        return taskId ? (composerDrafts[taskId] ?? "") : "";
+      }
+
+      function setCurrentComposerDraft(value) {
+        const taskId = currentTaskId();
+        if (!taskId) {
+          return;
+        }
+        composerDrafts[taskId] = value;
+      }
+
+      function currentComposerImagePaths() {
+        const taskId = currentTaskId();
+        return taskId ? (composerImagePaths[taskId] ?? []) : [];
+      }
+
+      function setComposerImagePaths(taskId, imagePaths) {
+        if (!taskId) {
+          return;
+        }
+        composerImagePaths[taskId] = [...new Set(imagePaths)];
+      }
+
+      function clearComposerState(taskId) {
+        if (!taskId) {
+          return;
+        }
+        composerDrafts[taskId] = "";
+        composerImagePaths[taskId] = [];
+      }
+
+      function fileNameFromPath(targetPath) {
+        const segments = String(targetPath ?? "").split(/[\\\\/]/);
+        return segments[segments.length - 1] || targetPath;
+      }
+
+      function formatLastUpdatedAt() {
+        if (!state.lastUpdatedAt) {
+          return "Waiting for first sync";
+        }
+        return new Date(state.lastUpdatedAt).toLocaleString();
+      }
+
+      function captureConversationScroll() {
+        const taskId = currentTaskId();
+        const conversation = document.getElementById("conversation-list");
+        if (!taskId || !(conversation instanceof HTMLElement)) {
+          return;
+        }
+        conversationScrollByTask[taskId] = {
+          scrollTop: conversation.scrollTop,
+          pinnedToBottom: conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop < 24,
+        };
+      }
+
+      function restoreConversationScroll() {
+        const taskId = currentTaskId();
+        const conversation = document.getElementById("conversation-list");
+        if (!taskId || !(conversation instanceof HTMLElement)) {
+          return;
+        }
+        const saved = conversationScrollByTask[taskId];
+        if (!saved) {
+          conversation.scrollTop = conversation.scrollHeight;
+          return;
+        }
+        if (saved.pinnedToBottom) {
+          conversation.scrollTop = conversation.scrollHeight;
+          return;
+        }
+        conversation.scrollTop = Math.min(saved.scrollTop, Math.max(0, conversation.scrollHeight - conversation.clientHeight));
+      }
+
+      function resizeComposer() {
+        const composer = document.getElementById("composer");
+        if (!(composer instanceof HTMLTextAreaElement)) {
+          return;
+        }
+        composer.style.height = "0px";
+        composer.style.height = Math.min(composer.scrollHeight, 320) + "px";
       }
 
       function taskRows() {
@@ -674,6 +888,32 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
               </div>
             </article>
           \`)
+          .join("");
+      }
+
+      function foldout(section, title, count, content) {
+        return \`
+          <details class="panel foldout" data-section="\${escapeHtml(section)}" \${sectionState[section] ? "open" : ""}>
+            <summary>
+              <div class="foldout-title">
+                <div class="eyebrow" style="margin-bottom:0;">\${escapeHtml(title)}</div>
+                <span class="chip">\${escapeHtml(String(count))}</span>
+              </div>
+              <span class="muted">Toggle</span>
+            </summary>
+            <div class="foldout-body">\${content}</div>
+          </details>
+        \`;
+      }
+
+      function composerAttachmentList() {
+        const imagePaths = currentComposerImagePaths();
+        if (!imagePaths.length) {
+          return '<span class="muted">No local images attached.</span>';
+        }
+
+        return imagePaths
+          .map((imagePath) => \`<span class="composer-chip">\${escapeHtml(fileNameFromPath(imagePath))}</span>\`)
           .join("");
       }
 
@@ -787,7 +1027,6 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
                 <span>Desktop replies continue syncing back to Feishu</span>
               </label>
               <div class="actions">
-                <button data-action="refresh">Refresh</button>
                 <button data-action="open-status">Status</button>
                 <button class="danger" data-action="interrupt">Interrupt</button>
                 <button data-action="retry">Retry</button>
@@ -798,25 +1037,26 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             </div>
             \${task.latestSummary ? \`<div class="panel" style="margin-top: 12px; padding: 12px;"><div class="eyebrow">Latest Summary</div>\${pre(task.latestSummary)}</div>\` : ""}
           </section>
+          \${foldout("approvals", "Approvals", task.approvals.length, \`<div class="approvals">\${approvalsList()}</div>\`)}
+          \${foldout("diffs", "Diffs", task.diffs.length, \`<div class="diffs">\${diffList()}</div>\`)}
           <section class="panel">
             <div class="eyebrow">Conversation</div>
-            <div class="conversation">\${messageList()}</div>
-          </section>
-          <section class="panel">
-            <div class="eyebrow">Approvals</div>
-            <div class="approvals">\${approvalsList()}</div>
-          </section>
-          <section class="panel">
-            <div class="eyebrow">Diffs</div>
-            <div class="diffs">\${diffList()}</div>
-          </section>
-          <section class="panel">
-            <div class="eyebrow">Desktop Composer</div>
-            <textarea id="composer" placeholder="Type here to continue the selected task from VSCode without using a popup input box...">\${escapeHtml(composerDraft)}</textarea>
-            <div class="composer-footer" style="margin-top: 12px;">
-              <span class="muted">Desktop messages are tagged as <code>vscode</code>. User text is not mirrored into Feishu.</span>
-              <div class="actions">
-                <button class="primary" data-action="send-message">Send</button>
+            <div id="conversation-list" class="conversation">\${messageList()}</div>
+            <div class="eyebrow" style="margin-top: 14px;">Desktop Composer</div>
+            <div class="composer-shell">
+              <div class="composer-toolbar">
+                <span class="muted">Task-scoped draft, local image attachments, and <code>Ctrl/Cmd+Enter</code> to send.</span>
+                <div class="composer-actions">
+                  <button data-action="pick-composer-images">Attach Images</button>
+                  <button data-action="clear-composer" \${currentComposerDraft() || currentComposerImagePaths().length ? "" : "disabled"}>Clear</button>
+                  <button class="primary" data-action="send-message">Send</button>
+                </div>
+              </div>
+              <div class="composer-attachments">\${composerAttachmentList()}</div>
+              <textarea id="composer" placeholder="Type here to continue the selected task from VSCode. Shift+Enter for newline, Ctrl/Cmd+Enter to send.">\${escapeHtml(currentComposerDraft())}</textarea>
+              <div class="composer-footer">
+                <span class="muted">Desktop messages are tagged as <code>vscode</code>. User text is not mirrored into Feishu.</span>
+                <span class="muted">\${currentComposerImagePaths().length ? escapeHtml(String(currentComposerImagePaths().length)) + " image(s) attached" : "No attachments selected."}</span>
               </div>
             </div>
           </section>
@@ -824,6 +1064,7 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
       }
 
       function render() {
+        captureConversationScroll();
         document.getElementById("app").innerHTML = \`
           <section class="panel">
             <div class="hero">
@@ -840,18 +1081,23 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             <div class="metrics" style="margin-top: 12px;">
               <div class="metric"><strong>Account</strong><span>\${escapeHtml(accountSummary())}</span></div>
               <div class="metric"><strong>Rate limits</strong><span>\${escapeHtml(rateSummary())}</span></div>
+              <div class="metric"><strong>Last synced</strong><span>\${escapeHtml(formatLastUpdatedAt())}</span></div>
             </div>
             <div class="actions" style="margin-top: 12px;">
+              <label class="toggle">
+                <span class="muted">Import count</span>
+                <input id="import-limit" class="inline-input" type="number" min="1" max="50" value="\${escapeHtml(String(importRecentLimit))}" />
+              </label>
               <button data-action="import-recent-threads">Import Recent Host Threads</button>
               <button data-action="forget-imported-tasks">Clear Imported Local Tasks</button>
-              <button data-action="refresh">Refresh</button>
+              <button data-action="refresh">Refresh Tasks</button>
             </div>
             <div class="sync-row" style="margin-top: 12px;">
               <label class="toggle">
                 <input type="checkbox" data-action="toggle-local-imported-tasks" \${state.showLocalImportedTasks ? "checked" : ""} />
                 <span>Show local imported tasks</span>
               </label>
-              <span class="muted">\${state.showLocalImportedTasks ? "Displaying Feishu tasks and local imports." : "Displaying Feishu-bound tasks only."}</span>
+              <span class="muted">\${state.showLocalImportedTasks ? "Displaying Feishu tasks and local imports." : "Displaying Feishu-bound tasks only."} Refresh re-reads daemon state and host thread changes.</span>
             </div>
           </section>
           <section class="panel">
@@ -862,14 +1108,71 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         \`;
 
         const composer = document.getElementById("composer");
-        if (composer) {
+        if (composer instanceof HTMLTextAreaElement) {
           composer.addEventListener("input", (event) => {
-            composerDraft = event.target.value;
+            setCurrentComposerDraft(event.target.value);
+            resizeComposer();
+          });
+          composer.addEventListener("keydown", (event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              const sendButton = document.querySelector('[data-action="send-message"]');
+              if (sendButton instanceof HTMLElement) {
+                sendButton.click();
+              }
+            }
           });
         }
+
+        const importLimitInput = document.getElementById("import-limit");
+        if (importLimitInput instanceof HTMLInputElement) {
+          importLimitInput.addEventListener("input", (event) => {
+            importRecentLimit = Math.max(1, Math.min(50, Math.trunc(Number(event.target.value) || importRecentLimit)));
+          });
+        }
+
+        const conversation = document.getElementById("conversation-list");
+        if (conversation instanceof HTMLElement) {
+          conversation.addEventListener("scroll", () => {
+            captureConversationScroll();
+          });
+        }
+
+        document.querySelectorAll("details[data-section]").forEach((details) => {
+          if (!(details instanceof HTMLDetailsElement)) {
+            return;
+          }
+          details.addEventListener("toggle", () => {
+            const section = details.dataset.section;
+            if (!section) {
+              return;
+            }
+            sectionState[section] = details.open;
+          });
+        });
+
+        resizeComposer();
+        restoreConversationScroll();
       }
 
       window.addEventListener("message", (event) => {
+        if (event.data?.type === "composer-images-selected") {
+          const taskId = event.data.taskId;
+          if (!taskId || !Array.isArray(event.data.imagePaths)) {
+            return;
+          }
+          const existing = composerImagePaths[taskId] ?? [];
+          setComposerImagePaths(taskId, [...existing, ...event.data.imagePaths]);
+          render();
+          return;
+        }
+
+        if (event.data?.type === "composer-cleared") {
+          clearComposerState(event.data.taskId);
+          render();
+          return;
+        }
+
         if (event.data?.type !== "state") {
           return;
         }
@@ -896,9 +1199,13 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           case "select-task":
             vscode.postMessage({ type: "select-task", taskId: target.dataset.taskId });
             return;
-          case "import-recent-threads":
-            vscode.postMessage({ type: "import-recent-threads" });
+          case "import-recent-threads": {
+            const importLimitInput = document.getElementById("import-limit");
+            const limit = importLimitInput instanceof HTMLInputElement ? Number(importLimitInput.value) : importRecentLimit;
+            importRecentLimit = Math.max(1, Math.min(50, Math.trunc(limit || importRecentLimit)));
+            vscode.postMessage({ type: "import-recent-threads", limit: importRecentLimit });
             return;
+          }
           case "refresh":
             vscode.postMessage({ type: "refresh" });
             return;
@@ -908,14 +1215,27 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           case "open-status":
             vscode.postMessage({ type: "open-status" });
             return;
-          case "send-message": {
-            const composer = document.getElementById("composer");
-            const content = composer?.value?.trim();
-            if (!content || !taskId) {
+          case "pick-composer-images":
+            if (!taskId) {
               return;
             }
-            composerDraft = "";
-            vscode.postMessage({ type: "send-message", taskId, content });
+            vscode.postMessage({ type: "pick-composer-images", taskId });
+            return;
+          case "clear-composer":
+            if (!taskId) {
+              return;
+            }
+            clearComposerState(taskId);
+            render();
+            return;
+          case "send-message": {
+            const composer = document.getElementById("composer");
+            const content = composer instanceof HTMLTextAreaElement ? composer.value.trim() : "";
+            const imagePaths = taskId ? currentComposerImagePaths() : [];
+            if ((!content && imagePaths.length === 0) || !taskId) {
+              return;
+            }
+            vscode.postMessage({ type: "send-message", taskId, content, imagePaths });
             return;
           }
           case "interrupt":
