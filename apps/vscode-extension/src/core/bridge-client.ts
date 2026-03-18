@@ -195,6 +195,12 @@ export class BridgeClient {
     return result.task;
   }
 
+  async forgetTask(taskId: string): Promise<void> {
+    await this.requestJson<{ taskId: string }>(`/tasks/${encodeURIComponent(taskId)}/forget`, {
+      method: "POST",
+    });
+  }
+
   async interruptTask(taskId: string): Promise<BridgeTask> {
     const result = await this.requestJson<{ task: BridgeTask }>(`/tasks/${encodeURIComponent(taskId)}/interrupt`, {
       method: "POST",

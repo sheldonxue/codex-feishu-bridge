@@ -331,11 +331,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: new TaskStore(client),
   };
 
-  const treeProvider = new TaskTreeProvider(services.store);
+  const showLocalImportedTasks = context.workspaceState.get<boolean>("codexFeishuBridge.monitor.showLocalImportedTasks") ?? false;
+  const treeProvider = new TaskTreeProvider(services.store, {
+    showLocalImportedTasks,
+  });
   const monitorProvider = new TaskMonitorViewProvider({
     context,
     client,
     store: services.store,
+    setShowLocalImportedTasks: async (enabled) => {
+      treeProvider.setShowLocalImportedTasks(enabled);
+    },
+    forgetLocalTask: async (taskId) => {
+      await services.client.forgetTask(taskId);
+    },
     openStatus: async () => {
       await services.store.refresh();
       const snapshot = services.store.getSnapshot();

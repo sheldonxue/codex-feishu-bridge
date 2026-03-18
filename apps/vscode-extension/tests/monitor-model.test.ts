@@ -33,7 +33,8 @@ describe("monitor model", () => {
     second.desktopReplySyncToFeishu = true;
 
     assert.equal(pickMonitorTask([first, second])?.taskId, second.taskId);
-    assert.equal(pickMonitorTask([first, second], first.taskId)?.taskId, first.taskId);
+    assert.equal(pickMonitorTask([first, second], first.taskId, true)?.taskId, first.taskId);
+    assert.equal(pickMonitorTask([first, second], first.taskId)?.taskId, second.taskId);
   });
 
   it("serializes task source badges and feishu sync state for the monitor view", () => {
@@ -81,5 +82,49 @@ describe("monitor model", () => {
     assert.match(state.tasks[0]?.description ?? "", /Feishu/);
     assert.equal(state.selectedTask?.desktopReplySyncToFeishu, true);
     assert.equal(state.selectedTask?.conversation[0]?.surface, "feishu");
+  });
+
+  it("hides local-only tasks by default and exposes them when the filter is enabled", () => {
+    const localTask = createBridgeTask({
+      threadId: "thr-local",
+      title: "Imported local task",
+      workspaceRoot: "/tmp/local",
+      mode: "manual-import",
+      createdAt: "2026-03-18T00:00:00.000Z",
+    });
+    localTask.updatedAt = "2026-03-18T00:00:02.000Z";
+
+    const feishuTask = createBridgeTask({
+      threadId: "thr-feishu-visible",
+      title: "Visible Feishu task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+      createdAt: "2026-03-18T00:00:00.000Z",
+    });
+    feishuTask.updatedAt = "2026-03-18T00:00:03.000Z";
+    feishuTask.feishuBinding = {
+      chatId: "oc_chat",
+      threadKey: "omt_visible",
+    };
+
+    const snapshot = {
+      ...createEmptySnapshot(),
+      connection: "connected" as const,
+      tasks: [localTask, feishuTask],
+      lastUpdatedAt: "2026-03-18T00:00:03.000Z",
+    };
+
+    const defaultState = buildMonitorState(snapshot);
+    assert.equal(defaultState.taskCount, 1);
+    assert.equal(defaultState.totalTaskCount, 2);
+    assert.equal(defaultState.hiddenTaskCount, 1);
+    assert.equal(defaultState.tasks[0]?.taskId, feishuTask.taskId);
+
+    const expandedState = buildMonitorState(snapshot, undefined, {
+      showLocalImportedTasks: true,
+    });
+    assert.equal(expandedState.taskCount, 2);
+    assert.equal(expandedState.hiddenTaskCount, 0);
+    assert.equal(expandedState.showLocalImportedTasks, true);
   });
 });

@@ -12,6 +12,8 @@ interface TaskMonitorViewProviderOptions {
   store: TaskStore;
   openStatus: () => Promise<void>;
   openDiff: (task: BridgeTask, diffPath?: string) => Promise<void>;
+  setShowLocalImportedTasks: (enabled: boolean) => Promise<void> | void;
+  forgetLocalTask: (taskId: string) => Promise<void>;
 }
 
 function nonce(): string {
@@ -30,14 +32,18 @@ function escapeHtml(value: string): string {
 export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   static readonly viewType = "codexFeishuBridge.monitor";
   private static readonly selectedTaskStorageKey = "codexFeishuBridge.monitor.selectedTaskId";
+  private static readonly showLocalImportedTasksStorageKey = "codexFeishuBridge.monitor.showLocalImportedTasks";
 
   private readonly disposables: vscode.Disposable[] = [];
   private view: vscode.WebviewView | null = null;
   private selectedTaskId: string | undefined;
+  private showLocalImportedTasks: boolean;
   private focusComposerOnNextState = false;
 
   constructor(private readonly options: TaskMonitorViewProviderOptions) {
     this.selectedTaskId = this.options.context.workspaceState.get<string>(TaskMonitorViewProvider.selectedTaskStorageKey);
+    this.showLocalImportedTasks =
+      this.options.context.workspaceState.get<boolean>(TaskMonitorViewProvider.showLocalImportedTasksStorageKey) ?? false;
     this.disposables.push({
       dispose: this.options.store.onDidChange(() => {
         void this.postState();
@@ -120,6 +126,16 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           }
           return;
         }
+        case "toggle-local-imported-tasks": {
+          this.showLocalImportedTasks = Boolean(payload.enabled);
+          await this.options.context.workspaceState.update(
+            TaskMonitorViewProvider.showLocalImportedTasksStorageKey,
+            this.showLocalImportedTasks,
+          );
+          await this.options.setShowLocalImportedTasks(this.showLocalImportedTasks);
+          await this.postState();
+          return;
+        }
         case "open-status":
           await this.options.openStatus();
           return;
@@ -200,6 +216,18 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           await this.options.store.refresh();
           return;
         }
+        case "forget-local-task": {
+          const task = this.getTask(payload.taskId);
+          if (!task || task.feishuBinding) {
+            return;
+          }
+          await this.options.forgetLocalTask(task.taskId);
+          if (this.selectedTaskId === task.taskId) {
+            await this.setSelectedTask(undefined);
+          }
+          await this.options.store.refresh();
+          return;
+        }
         default:
           return;
       }
@@ -226,7 +254,9 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
     if (!this.view) {
       return;
     }
-    const state = buildMonitorState(this.options.store.getSnapshot(), this.selectedTaskId);
+    const state = buildMonitorState(this.options.store.getSnapshot(), this.selectedTaskId, {
+      showLocalImportedTasks: this.showLocalImportedTasks,
+    });
     if (state.selectedTaskId !== this.selectedTaskId) {
       this.selectedTaskId = state.selectedTaskId;
       await this.options.context.workspaceState.update(TaskMonitorViewProvider.selectedTaskStorageKey, this.selectedTaskId);
@@ -492,6 +522,9 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
       let state = {
         connection: "disconnected",
         taskCount: 0,
+        totalTaskCount: 0,
+        hiddenTaskCount: 0,
+        showLocalImportedTasks: false,
         tasks: [],
         selectedTask: null,
         selectedTaskId: undefined,
@@ -515,6 +548,9 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
 
       function taskRows() {
         if (!state.tasks.length) {
+          if (!state.showLocalImportedTasks && state.hiddenTaskCount > 0) {
+            return \`<div class="empty">No Feishu-bound tasks are visible right now. Turn on <strong>Show local imported tasks</strong> to inspect \${escapeHtml(String(state.hiddenTaskCount))} local task(s).</div>\`;
+          }
           return '<div class="empty">No bridge tasks are available yet. Use <strong>Import Recent Host Threads</strong> to pull the latest host-side Codex sessions into the monitor.</div>';
         }
 
@@ -674,7 +710,11 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             <section class="panel">
               <div class="eyebrow">Monitor</div>
               <h2>No task selected</h2>
-              <p class="muted">Pick a task from the tree or the list above. Feishu-bound tasks are highlighted so you can monitor mobile conversations without leaving VSCode.</p>
+              <p class="muted">\${
+                !state.showLocalImportedTasks && state.hiddenTaskCount > 0
+                  ? "Only Feishu-bound tasks are currently shown. Turn on Show local imported tasks if you want to inspect imported host threads."
+                  : "Pick a task from the tree or the list above. Feishu-bound tasks are highlighted so you can monitor mobile conversations without leaving VSCode."
+              }</p>
             </section>
           \`;
         }
@@ -706,6 +746,7 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
                 <button class="danger" data-action="interrupt">Interrupt</button>
                 <button data-action="retry">Retry</button>
                 <button \${task.feishuBinding ? "" : "disabled"} data-action="unbind">Unbind</button>
+                <button \${task.canForgetLocalTask ? "" : "disabled"} data-action="forget-local-task">Forget Local</button>
               </div>
             </div>
             \${task.latestSummary ? \`<div class="panel" style="margin-top: 12px; padding: 12px;"><div class="eyebrow">Latest Summary</div>\${pre(task.latestSummary)}</div>\` : ""}
@@ -742,11 +783,11 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
               <div>
                 <div class="eyebrow">Feishu Task Monitor</div>
                 <h1 style="margin:0;">Codex Feishu Monitor</h1>
-                <p class="muted">Track all bridge tasks, with Feishu-bound conversations highlighted for quick desktop supervision.</p>
+                <p class="muted">Track Feishu-bound bridge tasks by default, and optionally inspect imported local Codex threads when you need deeper host-side context.</p>
               </div>
               <div class="chips">
                 <span class="chip">\${escapeHtml(state.connection)}</span>
-                <span class="chip">\${escapeHtml(String(state.taskCount))} tasks</span>
+                <span class="chip">\${escapeHtml(String(state.taskCount))} shown / \${escapeHtml(String(state.totalTaskCount))} total</span>
               </div>
             </div>
             <div class="metrics" style="margin-top: 12px;">
@@ -756,6 +797,13 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             <div class="actions" style="margin-top: 12px;">
               <button data-action="import-recent-threads">Import Recent Host Threads</button>
               <button data-action="refresh">Refresh</button>
+            </div>
+            <div class="sync-row" style="margin-top: 12px;">
+              <label class="toggle">
+                <input type="checkbox" data-action="toggle-local-imported-tasks" \${state.showLocalImportedTasks ? "checked" : ""} />
+                <span>Show local imported tasks</span>
+              </label>
+              <span class="muted">\${state.showLocalImportedTasks ? "Displaying Feishu tasks and local imports." : "Displaying Feishu-bound tasks only."}</span>
             </div>
           </section>
           <section class="panel">
@@ -824,6 +872,15 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             }
             vscode.postMessage({ type: action, taskId });
             return;
+          case "forget-local-task":
+            if (!taskId) {
+              return;
+            }
+            if (!window.confirm("Forget this local task record from the bridge monitor? The underlying host Codex thread will not be deleted.")) {
+              return;
+            }
+            vscode.postMessage({ type: "forget-local-task", taskId });
+            return;
           case "resolve-approval":
             if (!taskId || !target.dataset.requestId || !target.dataset.decision) {
               return;
@@ -856,6 +913,13 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           vscode.postMessage({
             type: "toggle-feishu-sync",
             taskId: state.selectedTaskId,
+            enabled: target.checked,
+          });
+          return;
+        }
+        if (target instanceof HTMLInputElement && target.dataset.action === "toggle-local-imported-tasks") {
+          vscode.postMessage({
+            type: "toggle-local-imported-tasks",
             enabled: target.checked,
           });
         }

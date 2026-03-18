@@ -31,6 +31,8 @@ export interface MonitorTaskState {
   title: string;
   status: BridgeTask["status"];
   mode: BridgeTask["mode"];
+  isFeishuBound: boolean;
+  canForgetLocalTask: boolean;
   workspaceRoot: string;
   latestSummary?: string;
   threadId: string;
@@ -50,12 +52,19 @@ export interface MonitorTaskState {
 export interface MonitorViewState {
   connection: ExtensionSnapshot["connection"];
   taskCount: number;
+  totalTaskCount: number;
+  hiddenTaskCount: number;
+  showLocalImportedTasks: boolean;
   lastUpdatedAt?: string;
   account: unknown;
   rateLimits: unknown;
   selectedTaskId?: string;
   tasks: MonitorTaskListEntry[];
   selectedTask: MonitorTaskState | null;
+}
+
+interface BuildMonitorStateOptions {
+  showLocalImportedTasks?: boolean;
 }
 
 function taskDescription(task: BridgeTask): string {
@@ -72,27 +81,45 @@ function taskDescription(task: BridgeTask): string {
   return details.join(" · ");
 }
 
-export function pickMonitorTask(tasks: BridgeTask[], selectedTaskId?: string): BridgeTask | null {
+function filterMonitorTasks(tasks: BridgeTask[], showLocalImportedTasks: boolean): BridgeTask[] {
+  return showLocalImportedTasks ? tasks : tasks.filter((task) => Boolean(task.feishuBinding));
+}
+
+export function pickMonitorTask(
+  tasks: BridgeTask[],
+  selectedTaskId?: string,
+  showLocalImportedTasks = false,
+): BridgeTask | null {
+  const visibleTasks = filterMonitorTasks(tasks, showLocalImportedTasks);
   if (selectedTaskId) {
-    const selected = tasks.find((task) => task.taskId === selectedTaskId);
+    const selected = visibleTasks.find((task) => task.taskId === selectedTaskId);
     if (selected) {
       return selected;
     }
   }
 
-  return tasks.find((task) => Boolean(task.feishuBinding)) ?? tasks[0] ?? null;
+  return visibleTasks.find((task) => Boolean(task.feishuBinding)) ?? visibleTasks[0] ?? null;
 }
 
-export function buildMonitorState(snapshot: ExtensionSnapshot, selectedTaskId?: string): MonitorViewState {
-  const selectedTask = pickMonitorTask(snapshot.tasks, selectedTaskId);
+export function buildMonitorState(
+  snapshot: ExtensionSnapshot,
+  selectedTaskId?: string,
+  options?: BuildMonitorStateOptions,
+): MonitorViewState {
+  const showLocalImportedTasks = options?.showLocalImportedTasks ?? false;
+  const visibleTasks = filterMonitorTasks(snapshot.tasks, showLocalImportedTasks);
+  const selectedTask = pickMonitorTask(snapshot.tasks, selectedTaskId, showLocalImportedTasks);
   return {
     connection: snapshot.connection,
-    taskCount: snapshot.tasks.length,
+    taskCount: visibleTasks.length,
+    totalTaskCount: snapshot.tasks.length,
+    hiddenTaskCount: Math.max(0, snapshot.tasks.length - visibleTasks.length),
+    showLocalImportedTasks,
     lastUpdatedAt: snapshot.lastUpdatedAt,
     account: snapshot.account,
     rateLimits: snapshot.rateLimits,
     selectedTaskId: selectedTask?.taskId,
-    tasks: snapshot.tasks.map((task) => ({
+    tasks: visibleTasks.map((task) => ({
       taskId: task.taskId,
       title: task.title,
       status: task.status,
@@ -106,6 +133,8 @@ export function buildMonitorState(snapshot: ExtensionSnapshot, selectedTaskId?: 
           title: selectedTask.title,
           status: selectedTask.status,
           mode: selectedTask.mode,
+          isFeishuBound: Boolean(selectedTask.feishuBinding),
+          canForgetLocalTask: !selectedTask.feishuBinding,
           workspaceRoot: selectedTask.workspaceRoot,
           latestSummary: selectedTask.latestSummary,
           threadId: selectedTask.threadId,

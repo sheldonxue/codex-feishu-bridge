@@ -721,6 +721,23 @@ export class BridgeService {
     return cloneTask(task);
   }
 
+  async forgetTask(taskId: string): Promise<void> {
+    const task = this.requireTask(taskId);
+    this.tasks.delete(taskId);
+    this.pendingConversationSources.delete(taskId);
+    this.pendingTurnReplyPolicies.delete(taskId);
+    if (task.activeTurnId) {
+      this.turnReplyPolicies.delete(task.activeTurnId);
+      this.pendingTurnStarts.delete(task.activeTurnId);
+      this.startedTurns.delete(task.activeTurnId);
+    }
+    await this.persistState();
+    this.emitEvent(taskId, "task.updated", {
+      taskId,
+      forgotten: true,
+    });
+  }
+
   async updateTaskSettings(taskId: string, request: TaskSettingsRequest): Promise<BridgeTask> {
     const task = this.requireTask(taskId);
     if (typeof request.desktopReplySyncToFeishu === "boolean") {

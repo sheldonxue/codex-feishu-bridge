@@ -69,8 +69,15 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeItem> {
   private readonly emitter = new vscode.EventEmitter<TaskTreeItem | void>();
   readonly onDidChangeTreeData = this.emitter.event;
   private readonly disposeStoreListener: () => void;
+  private showLocalImportedTasks: boolean;
 
-  constructor(private readonly store: TaskStore) {
+  constructor(
+    private readonly store: TaskStore,
+    options?: {
+      showLocalImportedTasks?: boolean;
+    },
+  ) {
+    this.showLocalImportedTasks = options?.showLocalImportedTasks ?? false;
     this.disposeStoreListener = store.onDidChange(() => {
       this.emitter.fire();
     });
@@ -81,7 +88,20 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeItem> {
   }
 
   getChildren(): TaskTreeItem[] {
-    return this.store.listTasks().map((task) => new TaskTreeItem(task));
+    return this.visibleTasks().map((task) => new TaskTreeItem(task));
+  }
+
+  setShowLocalImportedTasks(enabled: boolean): void {
+    if (this.showLocalImportedTasks === enabled) {
+      return;
+    }
+    this.showLocalImportedTasks = enabled;
+    this.emitter.fire();
+  }
+
+  private visibleTasks(): BridgeTask[] {
+    const tasks = this.store.listTasks();
+    return this.showLocalImportedTasks ? tasks : tasks.filter((task) => Boolean(task.feishuBinding));
   }
 
   dispose(): void {

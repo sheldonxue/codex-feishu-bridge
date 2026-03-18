@@ -168,21 +168,22 @@ describe("bridge daemon task http server", () => {
       }).then((result) => result.json());
       assert.equal(unbound.task.feishuBinding, undefined);
 
+      const forgotten = await fetch(`${baseUrl}/tasks/${secondTaskId}/forget`, {
+        method: "POST",
+      }).then((result) => result.json());
+      assert.equal(forgotten.taskId, secondTaskId);
+      assert.equal(service.getTask(secondTaskId), null);
+
       await waitFor(() => {
-        const secondTaskSnapshot = service.getTask(secondTaskId);
+        const secondTaskSnapshot = service.getTask(firstTaskId);
         return Boolean(
-          secondTaskSnapshot?.imageAssets.length === 1 &&
-            secondTaskSnapshot.conversation.some((entry) => entry.author === "user" && entry.surface === "vscode"),
+          secondTaskSnapshot?.pendingApprovals.length === 1 &&
+            secondTaskSnapshot.pendingApprovals[0]?.state === "accepted",
         );
       }, "task snapshots");
 
-      const secondTaskSnapshot = await fetch(`${baseUrl}/tasks/${secondTaskId}`).then((result) => result.json());
-      assert.equal(secondTaskSnapshot.task.imageAssets.length, 1);
-      assert.ok(
-        secondTaskSnapshot.task.conversation.some(
-          (entry: { author: string; surface?: string }) => entry.author === "user" && entry.surface === "vscode",
-        ),
-      );
+      const missingForgottenTask = await fetch(`${baseUrl}/tasks/${secondTaskId}`);
+      assert.equal(missingForgottenTask.status, 404);
 
       assert.ok(
         wsMessages.some(
