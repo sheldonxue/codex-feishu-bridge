@@ -27,9 +27,11 @@
 
 ### VSCode Frontend
 
-- 负责任务列表、任务详情、diff 面板、审批队列、登录状态页
+- 负责任务列表、编辑器页监视器、任务详情、diff 面板、审批队列、登录状态页
 - 负责桌面图片输入和 daemon 交互
-- 暴露 `newTask`、`resumeTask`、`importThreads`、`sendMessage`、`interruptTask`、`approve*`、`retryTurn`、`openDiff`
+- 主监视器通过 `Open Monitor` 命令以 Webview editor tab 打开，而不是常驻侧栏
+- 监视器页内置任务列表、Conversation、Desktop Composer，以及本地任务多选批量清理
+- 暴露 `openMonitor`、`newTask`、`resumeTask`、`importThreads`、`sendMessage`、`interruptTask`、`approve*`、`retryTurn`、`openDiff`
 - 只与本地 daemon 通信，不依赖 OpenAI VSCode 扩展私有实现
 
 ### Feishu Frontend

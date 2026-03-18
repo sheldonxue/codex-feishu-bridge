@@ -8,7 +8,7 @@ import { BridgeClient } from "./core/bridge-client";
 import { diffSummaryText } from "./core/diff-summary";
 import { TaskStore } from "./core/task-store";
 import { openStatusPanel, openTaskDetailPanel } from "./panels/task-detail-panel";
-import { TaskMonitorViewProvider } from "./panels/task-monitor-view";
+import { TaskMonitorPanel } from "./panels/task-monitor-view";
 import { TaskTreeItem, TaskTreeProvider } from "./providers/task-tree";
 
 interface ExtensionServices {
@@ -335,7 +335,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const treeProvider = new TaskTreeProvider(services.store, {
     showLocalImportedTasks,
   });
-  const monitorProvider = new TaskMonitorViewProvider({
+  const monitorPanel = new TaskMonitorPanel({
     context,
     client,
     store: services.store,
@@ -367,13 +367,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     treeProvider,
-    vscode.window.registerTreeDataProvider("codexFeishuBridge.tasks", treeProvider),
-    monitorProvider,
-    vscode.window.registerWebviewViewProvider(TaskMonitorViewProvider.viewType, monitorProvider, {
-      webviewOptions: {
-        retainContextWhenHidden: true,
-      },
-    }),
+    monitorPanel,
   );
 
   context.subscriptions.push({
@@ -392,6 +386,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("codexFeishuBridge.refresh", async () => {
       await services.store.refresh();
       void vscode.window.showInformationMessage("Codex bridge tasks refreshed.");
+    }),
+    vscode.commands.registerCommand("codexFeishuBridge.openMonitor", async () => {
+      await monitorPanel.show();
     }),
     vscode.commands.registerCommand("codexFeishuBridge.login", async () => {
       const result = await services.client.login();
@@ -424,7 +421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await services.store.refresh();
       const latestTask = services.store.listTasks()[0];
       if (latestTask) {
-        await monitorProvider.focusTask(latestTask, true);
+        await monitorPanel.show(latestTask, true);
       }
     }),
     vscode.commands.registerCommand("codexFeishuBridge.focusTaskInMonitor", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
@@ -433,7 +430,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!task) {
         return;
       }
-      await monitorProvider.focusTask(task);
+      await monitorPanel.show(task);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.resumeTask", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
       const task = (await resolveTaskArgument(services.store, taskOrItem)) ??
@@ -444,7 +441,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await services.client.resumeTask(task.taskId);
       await services.store.refresh();
-      await monitorProvider.focusTask(task);
+      await monitorPanel.show(task);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.importThreads", async () => {
       const threadId = await vscode.window.showInputBox({
@@ -461,7 +458,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      await monitorProvider.focusTask(task, true);
+      await monitorPanel.show(task, true);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.interruptTask", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
       const task = (await resolveTaskArgument(services.store, taskOrItem)) ??
@@ -553,6 +550,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.commands.registerCommand("codexFeishuBridge.dev.getTaskTree", async () => {
         await services.store.refresh();
         return serializeTaskTree(treeProvider);
+      }),
+      vscode.commands.registerCommand("codexFeishuBridge.dev.openMonitor", async () => {
+        await monitorPanel.show();
+        return {
+          opened: true,
+        };
       }),
       vscode.commands.registerCommand("codexFeishuBridge.dev.createTask", async (request: DevCreateTaskRequest) => {
         const task = await services.client.createTask({

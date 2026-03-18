@@ -138,33 +138,31 @@ npm run build:extension
    - 返回 `backend=stdio` 或 `backend=mock`
 2. 在 VSCode 中按 `F5` 运行 `Codex Feishu Bridge Extension`
 3. 切到新打开的 `Extension Development Host`
-4. 在左侧 Explorer 中找到：
-   - `Feishu Task List`
-   - `Feishu Task Monitor`
-5. 先在监视器里点击：
+4. 通过命令面板运行 `Codex Bridge: Open Monitor`
+5. 先在监视器页里点击：
    - `Refresh`
    - 如果你想把宿主机最近的 Codex 历史线程拉进监视器，再点击 `Import Recent Host Threads`
 6. 在飞书里发起或推进任务线程
-7. 在 `Feishu Task List` 中观察全部任务，并优先关注已绑定飞书线程的任务
-8. 在 `Feishu Task Monitor` 常驻侧栏里查看：
+7. 在监视器页面的 `Tasks` 列表里观察全部任务，并优先关注已绑定飞书线程的任务
+8. 在 `Codex Feishu Monitor` 编辑器页面里查看：
    - 任务状态、workspace、threadId、Feishu 绑定信息
    - 会话消息流与消息来源（`feishu` / `vscode` / `runtime`）
    - pending approvals
    - diff 摘要
-9. 直接在监视器底部的常驻输入框里发消息，不再依赖弹窗输入框
-10. 在监视器里处理中断、重试、审批、diff 打开和解绑
+9. 直接在页面底部的常驻输入框里发消息，不再依赖弹窗输入框
+10. 在同一页里处理中断、重试、审批、diff 打开、解绑，以及 TASK 多选批量清理本地任务
 
 桌面端发起的消息默认不会被镜像成飞书里的用户原文；但对于已经绑定飞书线程的任务，你可以在监视器里切换“桌面回复继续同步回飞书”的任务级开关。
 
 ### 监视器里会看到什么
 
-- `Feishu Task List`
-  - 展示当前 bridge 已知的全部任务
-  - 已绑定飞书线程的任务会有明显的 `Feishu` 标识
-- `Feishu Task Monitor`
-  - 这是主交互面
+- `Codex Feishu Monitor`
+  - 这是以 VSCode 编辑器页形式打开的主交互面
+  - 页面顶部显示 daemon 连接、账号、限流和导入入口
+  - `Tasks` 列表展示当前 bridge 已知的全部任务，已绑定飞书线程的任务会有明显的 `Feishu` 标识
   - 会显示当前选中任务的消息流、审批、diff、飞书绑定信息和桌面同步开关
   - 底部有常驻输入框，适合桌面端持续接管任务
+  - 本地未绑定任务支持多选后批量 `Forget Selected` 或 `Delete Selected`
 
 ### `Import Recent Host Threads` 是什么
 

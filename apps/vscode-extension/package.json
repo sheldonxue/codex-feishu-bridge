@@ -14,8 +14,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:codexFeishuBridge.tasks",
-    "onView:codexFeishuBridge.monitor",
+    "onCommand:codexFeishuBridge.openMonitor",
     "onCommand:codexFeishuBridge.focusTaskInMonitor",
     "onCommand:codexFeishuBridge.refresh",
     "onCommand:codexFeishuBridge.login",
@@ -32,20 +31,11 @@
     "onCommand:codexFeishuBridge.openStatus"
   ],
   "contributes": {
-    "views": {
-      "explorer": [
-        {
-          "id": "codexFeishuBridge.tasks",
-          "name": "Feishu Task List"
-        },
-        {
-          "type": "webview",
-          "id": "codexFeishuBridge.monitor",
-          "name": "Feishu Task Monitor"
-        }
-      ]
-    },
     "commands": [
+      {
+        "command": "codexFeishuBridge.openMonitor",
+        "title": "Codex Bridge: Open Monitor"
+      },
       {
         "command": "codexFeishuBridge.focusTaskInMonitor",
         "title": "Codex Bridge: Focus Task In Monitor"
@@ -103,47 +93,6 @@
         "title": "Codex Bridge: Open Status"
       }
     ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "codexFeishuBridge.refresh",
-          "when": "view == codexFeishuBridge.tasks",
-          "group": "navigation"
-        },
-        {
-          "command": "codexFeishuBridge.openStatus",
-          "when": "view == codexFeishuBridge.monitor",
-          "group": "navigation"
-        },
-        {
-          "command": "codexFeishuBridge.newTask",
-          "when": "view == codexFeishuBridge.tasks",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "codexFeishuBridge.focusTaskInMonitor",
-          "when": "view == codexFeishuBridge.tasks && viewItem == bridgeTask",
-          "group": "inline"
-        },
-        {
-          "command": "codexFeishuBridge.openDiff",
-          "when": "view == codexFeishuBridge.tasks && viewItem == bridgeTask",
-          "group": "inline"
-        },
-        {
-          "command": "codexFeishuBridge.sendMessage",
-          "when": "view == codexFeishuBridge.tasks && viewItem == bridgeTask",
-          "group": "navigation"
-        },
-        {
-          "command": "codexFeishuBridge.interruptTask",
-          "when": "view == codexFeishuBridge.tasks && viewItem == bridgeTask",
-          "group": "navigation"
-        }
-      ]
-    },
     "configuration": {
       "title": "Codex Feishu Task Monitor",
       "properties": {
