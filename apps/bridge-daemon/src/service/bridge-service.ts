@@ -110,6 +110,23 @@ interface PendingConversationSource {
   replyToFeishu: boolean;
 }
 
+interface ImportedConversationRefreshResult {
+  changed: boolean;
+  appendedMessages: ConversationMessage[];
+}
+
+interface RuntimeThreadUpdate {
+  task: BridgeTask;
+  imported?: boolean;
+  importedReason?: string;
+  importedConversationDelta?: ConversationMessage[];
+}
+
+interface RuntimeThreadApplyResult {
+  changed: boolean;
+  updates: RuntimeThreadUpdate[];
+}
+
 interface RolloutConversationSeed {
   author: MessageAuthor;
   content: string;
@@ -456,6 +473,7 @@ function parseRolloutConversationSeed(line: string): RolloutConversationSeed | n
 }
 
 export class BridgeService {
+  private static readonly DEFAULT_RUNTIME_SYNC_INTERVAL_MS = 5_000;
   private readonly emitter = new EventEmitter();
   private readonly tasks = new Map<string, BridgeTask>();
   private readonly pendingConversationSources = new Map<string, PendingConversationSource[]>();
@@ -469,12 +487,15 @@ export class BridgeService {
   private rateLimits: CodexRateLimitSnapshot | null = null;
   private unsubscribeRuntime: (() => void) | null = null;
   private persistChain: Promise<void> = Promise.resolve();
+  private runtimeSyncTimer: NodeJS.Timeout | null = null;
+  private runtimeSyncInFlight = false;
 
   constructor(
     private readonly options: {
       config: BridgeConfig;
       logger: Logger;
       runtime: CodexRuntime;
+      runtimeSyncIntervalMs?: number;
     },
   ) {
     this.stateFile = path.join(options.config.stateDir, "tasks.json");
@@ -497,6 +518,7 @@ export class BridgeService {
 
     await this.reconcilePersistedTasks();
     await this.refreshAccountState();
+    this.startRuntimeSyncLoop();
     this.emitEvent(SYSTEM_TASK_ID, "daemon.ready", {
       tasks: this.listTasks(),
     });
@@ -505,6 +527,10 @@ export class BridgeService {
   async dispose(): Promise<void> {
     this.unsubscribeRuntime?.();
     this.unsubscribeRuntime = null;
+    if (this.runtimeSyncTimer) {
+      clearInterval(this.runtimeSyncTimer);
+      this.runtimeSyncTimer = null;
+    }
   }
 
   subscribe(listener: (payload: BridgeServiceEvent) => void): () => void {
@@ -541,11 +567,21 @@ export class BridgeService {
   async syncRuntimeThreads(): Promise<BridgeTask[]> {
     try {
       const runtimeThreads = await this.options.runtime.listThreads();
-      const changed = await this.applyRuntimeThreads(runtimeThreads, {
+      const result = await this.applyRuntimeThreads(runtimeThreads, {
         importNewActiveOnly: true,
       });
-      if (changed) {
+      if (result.changed) {
         await this.persistState();
+        for (const update of result.updates) {
+          this.emitEvent(update.task.taskId, "task.updated", {
+            task: update.task,
+            ...(update.imported ? { imported: true } : {}),
+            ...(update.importedReason ? { importedReason: update.importedReason } : {}),
+            ...(update.importedConversationDelta?.length
+              ? { importedConversationDelta: structuredClone(update.importedConversationDelta) }
+              : {}),
+          });
+        }
       }
     } catch (error) {
       this.options.logger.warn("failed to sync runtime threads", error);
@@ -1291,10 +1327,10 @@ export class BridgeService {
   private async reconcilePersistedTasks(): Promise<void> {
     try {
       const runtimeThreads = await this.options.runtime.listThreads();
-      const changed = await this.applyRuntimeThreads(runtimeThreads, {
+      const result = await this.applyRuntimeThreads(runtimeThreads, {
         importNewActiveOnly: true,
       });
-      if (changed) {
+      if (result.changed) {
         await this.persistState();
       }
     } catch (error) {
@@ -1307,19 +1343,28 @@ export class BridgeService {
     options: {
       importNewActiveOnly: boolean;
     },
-  ): Promise<boolean> {
+  ): Promise<RuntimeThreadApplyResult> {
     const runtimeThreadsById = new Map(runtimeThreads.map((thread) => [thread.id, thread]));
     let changed = false;
+    const updates: RuntimeThreadUpdate[] = [];
 
     for (const task of this.tasks.values()) {
       const runtimeThread = runtimeThreadsById.get(task.threadId);
+      let taskChanged = false;
       if (!runtimeThread) {
         if (task.activeTurnId) {
           this.clearTurnTracking(task.activeTurnId);
           task.activeTurnId = undefined;
           changed = true;
+          taskChanged = true;
         }
-        changed = this.expirePendingApprovals(task) || changed;
+        if (this.expirePendingApprovals(task)) {
+          changed = true;
+          taskChanged = true;
+        }
+        if (taskChanged) {
+          updates.push({ task: cloneTask(task) });
+        }
         continue;
       }
 
@@ -1327,32 +1372,52 @@ export class BridgeService {
       const nextWorkspaceRoot = runtimeThread.cwd ?? task.workspaceRoot;
       const nextStatus = mapRuntimeStatus(runtimeThread.status);
       const nextUpdatedAt = runtimeThread.updatedAt ?? task.updatedAt;
+      let importedConversationDelta: ConversationMessage[] = [];
 
       if (task.title !== nextTitle) {
         task.title = nextTitle;
         changed = true;
+        taskChanged = true;
       }
       if (task.workspaceRoot !== nextWorkspaceRoot) {
         task.workspaceRoot = nextWorkspaceRoot;
         changed = true;
+        taskChanged = true;
       }
       if (task.status !== nextStatus) {
         task.status = nextStatus;
         changed = true;
+        taskChanged = true;
       }
       if (task.updatedAt !== nextUpdatedAt) {
         changed = true;
-        changed = (await this.refreshImportedTaskConversation(task)) || changed;
+        taskChanged = true;
+        const refreshResult = await this.refreshImportedTaskConversation(task);
+        if (refreshResult.changed) {
+          importedConversationDelta = refreshResult.appendedMessages;
+        }
       }
       if (nextStatus === "idle" || nextStatus === "completed" || nextStatus === "failed" || nextStatus === "interrupted") {
         if (task.activeTurnId) {
           this.clearTurnTracking(task.activeTurnId);
           task.activeTurnId = undefined;
           changed = true;
+          taskChanged = true;
         }
-        changed = this.expirePendingApprovals(task) || changed;
+        if (this.expirePendingApprovals(task)) {
+          changed = true;
+          taskChanged = true;
+        }
       }
       this.touchTask(task, nextUpdatedAt);
+      if (taskChanged) {
+        updates.push({
+          task: cloneTask(task),
+          ...(importedConversationDelta.length > 0
+            ? { importedConversationDelta: structuredClone(importedConversationDelta) }
+            : {}),
+        });
+      }
     }
 
     for (const descriptor of runtimeThreads) {
@@ -1365,11 +1430,19 @@ export class BridgeService {
         continue;
       }
 
-      this.upsertTaskFromDescriptor(descriptor, "manual-import");
+      const task = this.upsertTaskFromDescriptor(descriptor, "manual-import");
       changed = true;
+      updates.push({
+        task: cloneTask(task),
+        imported: true,
+        importedReason: "active-runtime-thread",
+      });
     }
 
-    return changed;
+    return {
+      changed,
+      updates,
+    };
   }
 
   private expirePendingApprovals(task: BridgeTask): boolean {
@@ -1533,20 +1606,29 @@ export class BridgeService {
     await this.refreshImportedTaskConversation(task);
   }
 
-  private async refreshImportedTaskConversation(task: BridgeTask): Promise<boolean> {
+  private async refreshImportedTaskConversation(task: BridgeTask): Promise<ImportedConversationRefreshResult> {
     if (!this.canRefreshImportedTaskConversation(task)) {
-      return false;
+      return {
+        changed: false,
+        appendedMessages: [],
+      };
     }
 
     try {
       const rolloutPath = await this.findThreadRolloutPath(task.threadId);
       if (!rolloutPath || !existsSync(rolloutPath)) {
-        return false;
+        return {
+          changed: false,
+          appendedMessages: [],
+        };
       }
 
       const messages = await this.readConversationFromRollout(rolloutPath);
       if (messages.length === 0) {
-        return false;
+        return {
+          changed: false,
+          appendedMessages: [],
+        };
       }
 
       const nextConversation: ConversationMessage[] = messages.map((message, index) => ({
@@ -1557,24 +1639,60 @@ export class BridgeService {
         createdAt: message.createdAt,
       }));
       if (!this.hasImportedConversationChanged(task.conversation, nextConversation)) {
-        return false;
+        return {
+          changed: false,
+          appendedMessages: [],
+        };
       }
 
+      const appendedMessages = this.appendedImportedConversationMessages(task.conversation, nextConversation);
       task.conversation = nextConversation;
       const latestAgentMessage = [...nextConversation].reverse().find((entry) => entry.author === "agent");
       if (latestAgentMessage) {
         task.latestSummary = latestAgentMessage.content;
         hydrateTaskDiffs(task);
       }
-      return true;
+      return {
+        changed: true,
+        appendedMessages,
+      };
     } catch (error) {
       this.options.logger.warn("failed to hydrate imported task conversation", {
         taskId: task.taskId,
         threadId: task.threadId,
         error,
       });
-      return false;
+      return {
+        changed: false,
+        appendedMessages: [],
+      };
     }
+  }
+
+  private appendedImportedConversationMessages(
+    currentConversation: ConversationMessage[],
+    nextConversation: ConversationMessage[],
+  ): ConversationMessage[] {
+    if (currentConversation.length === 0 || currentConversation.length >= nextConversation.length) {
+      return [];
+    }
+
+    const hasStablePrefix = currentConversation.every((entry, index) => {
+      const nextEntry = nextConversation[index];
+      return (
+        nextEntry !== undefined &&
+        entry.messageId === nextEntry.messageId &&
+        entry.author === nextEntry.author &&
+        entry.surface === nextEntry.surface &&
+        entry.content === nextEntry.content &&
+        entry.createdAt === nextEntry.createdAt
+      );
+    });
+    if (!hasStablePrefix) {
+      return [];
+    }
+
+    return nextConversation.slice(currentConversation.length);
   }
 
   private canRefreshImportedTaskConversation(task: BridgeTask): boolean {
@@ -1805,5 +1923,23 @@ conn.close()
       event,
       snapshot: cloneSnapshot(this.getSnapshot()),
     } satisfies BridgeServiceEvent);
+  }
+
+  private startRuntimeSyncLoop(): void {
+    const intervalMs = this.options.runtimeSyncIntervalMs ?? BridgeService.DEFAULT_RUNTIME_SYNC_INTERVAL_MS;
+    if (intervalMs <= 0 || this.runtimeSyncTimer) {
+      return;
+    }
+
+    this.runtimeSyncTimer = setInterval(() => {
+      if (this.runtimeSyncInFlight) {
+        return;
+      }
+
+      this.runtimeSyncInFlight = true;
+      void this.syncRuntimeThreads().finally(() => {
+        this.runtimeSyncInFlight = false;
+      });
+    }, intervalMs);
   }
 }

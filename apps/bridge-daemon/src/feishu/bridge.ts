@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
   ApprovalPolicy,
   BridgeTask,
+  ConversationMessage,
   FeishuThreadBinding,
   ReasoningEffort,
   SandboxMode,
@@ -670,12 +671,14 @@ export class FeishuBridge {
       return;
     }
 
-    const syncedAgentReply = this.extractAgentReply(event);
-    if (syncedAgentReply) {
-      await this.replyToMessage(
-        task.feishuBinding.rootMessageId ?? task.feishuBinding.threadKey,
-        syncedAgentReply,
-      );
+    const syncedAgentReplies = this.extractAgentReplies(event, task);
+    if (syncedAgentReplies.length > 0) {
+      for (const syncedAgentReply of syncedAgentReplies) {
+        await this.replyToMessage(
+          task.feishuBinding.rootMessageId ?? task.feishuBinding.threadKey,
+          syncedAgentReply,
+        );
+      }
       await this.renderTaskControlCard({
         task,
         binding: task.feishuBinding,
@@ -763,9 +766,9 @@ export class FeishuBridge {
     }
   }
 
-  private extractAgentReply(event: BridgeServiceEvent["event"]): string | null {
+  private extractAgentReplies(event: BridgeServiceEvent["event"], task: BridgeTask): string[] {
     if (event.kind !== "task.updated") {
-      return null;
+      return [];
     }
 
     const payload = event.payload as {
@@ -775,22 +778,54 @@ export class FeishuBridge {
         type?: string;
         text?: string;
       };
+      importedConversationDelta?: ConversationMessage[];
     };
+    const replies: string[] = [];
     const item = payload.item;
-    if (!item || item.type !== "agentMessage" || !item.id || !item.text?.trim()) {
+    if (item?.type === "agentMessage" && item.id && item.text?.trim()) {
+      const syncedConversationEntry = payload.task?.conversation.find((entry) => entry.messageId === item.id);
+      if (this.shouldSyncAgentReply(task, syncedConversationEntry)) {
+        const tracked = this.trackDeliveredAgentMessage(item.id, item.text.trim());
+        if (tracked) {
+          replies.push(tracked);
+        }
+      }
+    }
+
+    const importedConversationDelta = Array.isArray(payload.importedConversationDelta) ? payload.importedConversationDelta : [];
+    for (const entry of importedConversationDelta) {
+      if (entry.author !== "agent" || !entry.content.trim()) {
+        continue;
+      }
+      if (!this.shouldSyncAgentReply(task, entry)) {
+        continue;
+      }
+      const tracked = this.trackDeliveredAgentMessage(entry.messageId, entry.content.trim());
+      if (tracked) {
+        replies.push(tracked);
+      }
+    }
+
+    return replies;
+  }
+
+  private shouldSyncAgentReply(
+    task: BridgeTask,
+    conversationEntry: ConversationMessage | undefined,
+  ): boolean {
+    if (!conversationEntry) {
+      return task.desktopReplySyncToFeishu;
+    }
+
+    return conversationEntry.surface === "feishu" || task.desktopReplySyncToFeishu;
+  }
+
+  private trackDeliveredAgentMessage(messageId: string, text: string): string | null {
+    if (this.deliveredAgentMessageIds.has(messageId)) {
       return null;
     }
 
-    if (this.deliveredAgentMessageIds.has(item.id)) {
-      return null;
-    }
-
-    const syncedConversationEntry = payload.task?.conversation.find((entry) => entry.messageId === item.id);
-    if (syncedConversationEntry && syncedConversationEntry.surface !== "feishu") {
-      return null;
-    }
-
-    this.deliveredAgentMessageIds.add(item.id);
+    this.deliveredAgentMessageIds.add(messageId);
     if (this.deliveredAgentMessageIds.size > FEISHU_SYNCED_AGENT_MESSAGE_LIMIT) {
       const oldest = this.deliveredAgentMessageIds.values().next().value;
       if (oldest) {
@@ -798,7 +833,7 @@ export class FeishuBridge {
       }
     }
 
-    return item.text.trim();
+    return text;
   }
 
   private async handleIncomingMessage(

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -21,6 +22,17 @@ import type {
 } from "../src/runtime";
 import { BridgeService } from "../src/service/bridge-service";
 import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
+
+async function waitFor(check: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (check()) {
+      return;
+    }
+    await delay(20);
+  }
+
+  throw new Error(`Timed out waiting for ${message}`);
+}
 
 class FakeStatusRuntime implements CodexRuntime {
   readonly backend = "stdio";
@@ -559,6 +571,157 @@ describe("bridge service runtime status mapping", () => {
     );
     assert.equal(refreshedTask?.latestSummary, "Second imported answer");
 
+    await service.dispose();
+    await runtime.dispose();
+  });
+
+  it("emits imported conversation delta events when a host rollout grows during background sync", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-import-delta-event-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-import-delta-event.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+
+    const writeRollout = async (lines: unknown[]): Promise<void> => {
+      await writeFile(
+        rolloutDiskPath,
+        lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
+        "utf8",
+      );
+    };
+
+    await writeRollout([
+      {
+        timestamp: "2026-03-19T00:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "First imported question",
+          local_images: [],
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "First imported answer",
+          phase: "commentary",
+        },
+      },
+    ]);
+
+    const stateDb = new DatabaseSync(path.join(config.codexHome, "state_5.sqlite"));
+    stateDb.exec(`
+      CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT NOT NULL
+      )
+    `);
+    stateDb
+      .prepare("INSERT INTO threads (id, rollout_path) VALUES (?, ?)")
+      .run("thread-delta-event", `/codex-home/${rolloutRelativePath}`);
+    stateDb.close();
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-delta-event",
+        name: "Imported delta event thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({
+      config,
+      logger,
+      runtime,
+      runtimeSyncIntervalMs: 20,
+    });
+    await service.initialize();
+    await service.importRecentRuntimeThreads(1);
+
+    const observedDeltas: Array<{ kind: string; delta: string[] }> = [];
+    const unsubscribe = service.subscribe(({ event }) => {
+      const payload = event.payload as { importedConversationDelta?: Array<{ content: string }> };
+      observedDeltas.push({
+        kind: event.kind,
+        delta: Array.isArray(payload.importedConversationDelta)
+          ? payload.importedConversationDelta.map((entry) => entry.content)
+          : [],
+      });
+    });
+
+    await writeRollout([
+      {
+        timestamp: "2026-03-19T00:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "First imported question",
+          local_images: [],
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "First imported answer",
+          phase: "commentary",
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:03.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "Second imported question",
+          local_images: [],
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:04.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "Second imported answer",
+          phase: "final",
+        },
+      },
+    ]);
+
+    runtime.setThreads([
+      {
+        id: "thread-delta-event",
+        name: "Imported delta event thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:11:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+
+    await waitFor(
+      () =>
+        observedDeltas.some(
+          (entry) =>
+            entry.kind === "task.updated" &&
+            entry.delta.join(" | ") === "Second imported question | Second imported answer",
+        ),
+      "background imported delta event",
+    );
+
+    unsubscribe();
     await service.dispose();
     await runtime.dispose();
   });

@@ -468,4 +468,49 @@ describe("feishu bridge", { concurrency: 1 }, () => {
       await harness.cleanup();
     }
   });
+
+  it("syncs imported conversation delta replies back into bound Feishu threads", async () => {
+    const harness = await createHarness();
+
+    try {
+      const task = await harness.service.createTask({
+        title: "Imported delta task",
+      });
+      await harness.service.bindFeishuThread(task.taskId, {
+        chatId: "oc_chat_id",
+        threadKey: "omt_imported_delta",
+        rootMessageId: "om_root_imported_delta",
+      });
+
+      const boundTask = harness.service.getTask(task.taskId);
+      assert.ok(boundTask);
+
+      await (harness.service as any).emitEvent(task.taskId, "task.updated", {
+        task: boundTask,
+        importedConversationDelta: [
+          {
+            messageId: "thread-imported:imported:2",
+            author: "user",
+            surface: "runtime",
+            content: "Second imported question",
+            createdAt: "2026-03-19T00:00:03.000Z",
+          },
+          {
+            messageId: "thread-imported:imported:3",
+            author: "agent",
+            surface: "runtime",
+            content: "Second imported answer",
+            createdAt: "2026-03-19T00:00:04.000Z",
+          },
+        ],
+      });
+
+      await waitFor(
+        () => harness.requests.some((request) => parseMessageText(request).includes("Second imported answer")),
+        "imported delta reply sync",
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
 });
