@@ -495,16 +495,6 @@ function formatModelsList(
   ].join("\n");
 }
 
-function formatApprovalRequested(task: BridgeTask, approval: BridgeTask["pendingApprovals"][number]): string {
-  return [
-    `Approval requested for ${task.title}`,
-    `requestId: ${approval.requestId}`,
-    `kind: ${approval.kind}`,
-    `reason: ${approval.reason}`,
-    "Use /approve, /decline, or /cancel.",
-  ].join("\n");
-}
-
 function formatApprovalResolved(task: BridgeTask, payload: { approval?: BridgeTask["pendingApprovals"][number]; requestId?: string }): string {
   if (payload.approval) {
     return [
@@ -876,14 +866,11 @@ export class FeishuBridge {
         if (!approval) {
           return;
         }
-        await this.replyToMessage(
-          task.feishuBinding.rootMessageId ?? task.feishuBinding.threadKey,
-          formatApprovalRequested(task, approval),
-        );
         await this.renderTaskControlCard({
           task,
           binding: task.feishuBinding,
-          note: `Pending approvals: ${task.pendingApprovals.filter((entry) => entry.state === "pending").length}`,
+          note: `Approval requested: ${approval.kind} - ${approval.reason}`,
+          forceReply: true,
         });
         return;
       }
@@ -1656,14 +1643,17 @@ export class FeishuBridge {
     binding: FeishuThreadBinding;
     replyTargetId?: string;
     note?: string;
+    forceReply?: boolean;
   }): Promise<FeishuInteractiveCard | null> {
-    const { task, binding, replyTargetId, note } = params;
+    const { task, binding, replyTargetId, note, forceReply = false } = params;
     const existing = this.getThreadTaskCard(binding);
     const revision = (existing?.revision ?? 0) + 1;
     const card = await this.buildTaskControlCard(task, binding, revision, note ?? existing?.note);
 
-    let messageId = existing?.messageId;
-    const nextReplyTargetId = replyTargetId ?? (!messageId ? binding.rootMessageId : undefined);
+    let messageId = forceReply ? undefined : existing?.messageId;
+    const nextReplyTargetId =
+      replyTargetId ??
+      (forceReply ? (binding.rootMessageId ?? binding.threadKey) : !messageId ? binding.rootMessageId : undefined);
     if (!messageId && nextReplyTargetId) {
       messageId = await this.sendCardReply(nextReplyTargetId, card);
     } else if (messageId) {

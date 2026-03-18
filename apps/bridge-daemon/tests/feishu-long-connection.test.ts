@@ -536,6 +536,69 @@ describe("feishu long connection ingress", () => {
     }
   });
 
+  it("replies with a new interactive approval card instead of slash-command text when a bound task requests approval", async () => {
+    const harness = await createHarness();
+
+    try {
+      const task = await harness.service.createTask({
+        title: "Approval card task",
+      });
+
+      await harness.feishu.bindTaskToNewTopic(task.taskId);
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task: ${task.title}`),
+          ),
+        "initial bound task card",
+      );
+
+      const previousApprovalCardReplyCount = harness.requests.filter(
+        (request) =>
+          request.method === "POST" &&
+          request.url.includes("/open-apis/im/v1/messages/") &&
+          requestContainsCardTitle(request, `Task: ${task.title}`) &&
+          requestContainsCardText(request, "Pending Approval"),
+      ).length;
+
+      await harness.service.sendMessage(task.taskId, {
+        content: "Run a shell command for me.",
+        source: "feishu",
+        replyToFeishu: true,
+      });
+
+      await waitFor(
+        () => (harness.service.getTask(task.taskId)?.pendingApprovals.length ?? 0) > 0,
+        "approval after binding",
+      );
+      await waitFor(
+        () =>
+          harness.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task: ${task.title}`) &&
+              requestContainsCardText(request, "Pending Approval"),
+          ).length > previousApprovalCardReplyCount,
+        "approval card reply",
+      );
+
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("Approval requested for")),
+        false,
+      );
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("Use /approve, /decline, or /cancel.")),
+        false,
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("supports slash bind, status, unbind, and approve commands without implicit root-thread creation", async () => {
     const harness = await createHarness();
     const originalRespondToRequest = harness.runtime.respondToRequest.bind(harness.runtime);
