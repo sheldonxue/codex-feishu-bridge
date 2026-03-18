@@ -203,6 +203,19 @@ function formatExecutionProfile(profile: TaskExecutionProfile | undefined): stri
   ];
 }
 
+function taskStartGuidance(task: BridgeTask): string[] {
+  if (task.conversation.length > 0) {
+    return [];
+  }
+
+  return [
+    "**Next Step**",
+    "- this task is already created on the workstation and bound to this Feishu thread",
+    "- send the first plain-text message in this thread to start the first turn",
+    "- Create on Host only appears on the draft card before the task exists",
+  ];
+}
+
 function baseActionValue(
   kind: FeishuCardActionKind,
   binding: FeishuThreadBinding,
@@ -458,6 +471,12 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
         ].join("\n"),
       ),
       divider(),
+      ...(task.conversation.length === 0
+        ? [
+            markdown(taskStartGuidance(task).join("\n")),
+            divider(),
+          ]
+        : []),
       markdown(
         [
           `**Current Task**`,
@@ -503,6 +522,12 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
       ]),
       ...buildApprovalActionRows(task, binding, revision),
       divider(),
+      markdown(
+        [
+          "**Run Controls**",
+          "- refresh the current summary, retry the last turn, or stop a running turn",
+        ].join("\n"),
+      ),
       action([
         button({
           text: "View Status",
@@ -527,6 +552,23 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
             revision,
           }),
         }),
+      ]),
+      divider(),
+      markdown(
+        [
+          "**Thread Controls**",
+          "- Unbind keeps this topic reusable for another task later",
+          "- Archive closes this topic for future work and blocks later plain text from reaching the workstation",
+        ].join("\n"),
+      ),
+      action([
+        button({
+          text: "Unbind Thread",
+          value: baseActionValue("task.unbind", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
         button({
           text: "Archive Task",
           type: "danger",
@@ -535,14 +577,8 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
             revision,
           }),
         }),
-        button({
-          text: "Unbind Thread",
-          value: baseActionValue("task.unbind", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
       ]),
+      divider(),
       action([
         overflow({
           text: "More",

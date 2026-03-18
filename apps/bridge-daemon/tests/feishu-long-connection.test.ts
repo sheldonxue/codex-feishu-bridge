@@ -457,6 +457,8 @@ describe("feishu long connection ingress", () => {
       await waitFor(() => harness.service.listTasks().length === 1, "mobile task creation");
       assert.ok(createCard);
       assert.match(JSON.stringify(createCard), /Created task/);
+      assert.match(JSON.stringify(createCard), /Next Step/);
+      assert.match(JSON.stringify(createCard), /send the first plain-text message in this thread to start the first turn/i);
       assert.equal(
         harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
         false,

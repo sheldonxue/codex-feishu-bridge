@@ -139,6 +139,8 @@ describe("feishu card builders", () => {
 
     assert.match(taskJson, /How this thread works/);
     assert.match(taskJson, /Plan Mode: Off/);
+    assert.match(taskJson, /Run Controls/);
+    assert.match(taskJson, /Thread Controls/);
     assert.match(taskJson, /View Status/);
     assert.match(taskJson, /Stop Turn/);
     assert.match(taskJson, /Retry Last Turn/);
@@ -148,6 +150,38 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Cancel Approval/);
     assert.match(taskJson, /Bridge Health/);
     assert.match(taskJson, /Rate Limits/);
+  });
+
+  it("explains the next step when a host task exists but the first turn has not started yet", () => {
+    const task = createBridgeTask({
+      threadId: "thr-empty-task",
+      title: "Empty task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+    });
+    task.status = "idle";
+
+    const taskCard = createTaskControlCard({
+      task,
+      binding: BINDING,
+      revision: 1,
+      note: "Created task thr-empty-task. Send the first plain-text message in this thread to start the first turn.",
+      modelOptions: [
+        {
+          id: "gpt-5.4",
+          displayName: "GPT-5.4",
+          isDefault: true,
+          supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+          defaultReasoningEffort: "medium",
+        },
+      ],
+    });
+
+    const json = JSON.stringify(taskCard);
+    assert.match(json, /Next Step/);
+    assert.match(json, /already created on the workstation/);
+    assert.match(json, /send the first plain-text message in this thread to start the first turn/i);
+    assert.match(json, /Create on Host only appears on the draft card before the task exists/);
   });
 
   it("renders an archived-topic card that tells mobile users the thread is closed", () => {

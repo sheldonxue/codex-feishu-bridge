@@ -545,6 +545,12 @@ function formatArchivedThreadNotice(taskId?: string): string {
   ].join("\n");
 }
 
+function formatCreatedTaskNotice(taskId: string, initialMessageQueued: boolean): string {
+  return initialMessageQueued
+    ? `Created task ${taskId}. Initial message queued.`
+    : `Created task ${taskId}. Send the first plain-text message in this thread to start the first turn.`;
+}
+
 function truncateReplyText(text: string): string {
   const normalized = text.trim();
   if (normalized.length <= FEISHU_REPLY_MAX_CHARS) {
@@ -1979,6 +1985,8 @@ export class FeishuBridge {
               });
             });
           response = `${response}\ninitialMessage: queued`;
+        } else {
+          response = `${response}\nnextStep: send the first plain-text message in this thread to start the first turn`;
         }
 
         await this.renderTaskControlCard({
@@ -2133,6 +2141,8 @@ export class FeishuBridge {
           this.deleteThreadDraft(binding);
 
           const boundTask = this.options.service.getTask(task.taskId) ?? task;
+          const initialMessageQueued = Boolean(draft.prompt?.trim() || attachmentAssetIds.length);
+          const createdTaskNote = formatCreatedTaskNotice(task.taskId, initialMessageQueued);
           const messageId = event?.open_message_id ?? draft.cardMessageId;
           if (messageId) {
             await this.saveThreadTaskCard({
@@ -2142,11 +2152,11 @@ export class FeishuBridge {
               taskId: task.taskId,
               messageId,
               revision: 0,
-              note: `Created task ${task.taskId}.`,
+              note: createdTaskNote,
             });
           }
 
-          if (draft.prompt?.trim() || attachmentAssetIds.length) {
+          if (initialMessageQueued) {
             void this.options.service
               .sendMessage(task.taskId, {
                 content: draft.prompt ?? "",
@@ -2167,13 +2177,13 @@ export class FeishuBridge {
             (await this.renderTaskControlCard({
               task: boundTask,
               binding,
-              note: `Created task ${task.taskId}.${draft.prompt?.trim() || attachmentAssetIds.length ? " Initial message queued." : ""}`,
+              note: createdTaskNote,
             })) ??
             (await this.buildTaskControlCard(
               boundTask,
               binding,
               (this.getThreadTaskCard(binding)?.revision ?? 0) + 1,
-              `Created task ${task.taskId}.${draft.prompt?.trim() || attachmentAssetIds.length ? " Initial message queued." : ""}`,
+              createdTaskNote,
             ))
           );
         }
