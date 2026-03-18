@@ -705,6 +705,7 @@ export class BridgeService {
         replyToFeishu,
       } satisfies PendingConversationSource;
       this.enqueuePendingTurnReplyPolicy(task.taskId, pendingReplyPolicy);
+      await this.resumeImportedTaskBeforeMessage(task);
       const turn = await this.options.runtime.startTurn({
         threadId: task.threadId,
         input,
@@ -727,6 +728,15 @@ export class BridgeService {
     }
 
     return cloneTask(task);
+  }
+
+  private async resumeImportedTaskBeforeMessage(task: BridgeTask): Promise<void> {
+    if (!this.usesImportedSyntheticConversation(task)) {
+      return;
+    }
+
+    const descriptor = await this.options.runtime.resumeThread(task.threadId);
+    this.upsertTaskFromDescriptor(descriptor, task.mode);
   }
 
   async interruptTask(taskId: string): Promise<BridgeTask> {
@@ -1572,6 +1582,10 @@ export class BridgeService {
       return false;
     }
 
+    return this.usesImportedSyntheticConversation(task);
+  }
+
+  private usesImportedSyntheticConversation(task: BridgeTask): boolean {
     if (task.conversation.length === 0) {
       return true;
     }

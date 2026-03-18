@@ -36,6 +36,8 @@ class FakeStatusRuntime implements CodexRuntime {
       },
     },
   ];
+  private requiresResumeBeforeStartTurn = false;
+  private readonly resumedThreadIds = new Set<string>();
 
   async start(): Promise<void> {}
 
@@ -95,6 +97,7 @@ class FakeStatusRuntime implements CodexRuntime {
   }
 
   async resumeThread(threadId: string): Promise<CodexThreadDescriptor> {
+    this.resumedThreadIds.add(threadId);
     return (
       this.threads.find((thread) => thread.id === threadId) ?? {
         id: threadId,
@@ -109,6 +112,9 @@ class FakeStatusRuntime implements CodexRuntime {
   }
 
   async startTurn(params: { threadId: string }): Promise<CodexTurnDescriptor> {
+    if (this.requiresResumeBeforeStartTurn && !this.resumedThreadIds.has(params.threadId)) {
+      throw new Error(`thread not found: ${params.threadId}`);
+    }
     return {
       id: "turn-1",
       threadId: params.threadId,
@@ -144,6 +150,14 @@ class FakeStatusRuntime implements CodexRuntime {
 
   setThreads(threads: CodexThreadDescriptor[]): void {
     this.threads = threads;
+  }
+
+  requireResumeBeforeStartTurn(enabled: boolean): void {
+    this.requiresResumeBeforeStartTurn = enabled;
+  }
+
+  hasResumedThread(threadId: string): boolean {
+    return this.resumedThreadIds.has(threadId);
   }
 }
 
@@ -544,6 +558,45 @@ describe("bridge service runtime status mapping", () => {
       ],
     );
     assert.equal(refreshedTask?.latestSummary, "Second imported answer");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
+  it("resumes imported host threads before sending the first new message", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-import-resume-before-send-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new FakeStatusRuntime();
+    runtime.requireResumeBeforeStartTurn(true);
+    runtime.setThreads([
+      {
+        id: "thread-needs-resume",
+        name: "Imported needs resume",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:25:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    assert.equal(runtime.hasResumedThread("thread-needs-resume"), false);
+
+    await service.sendMessage("thread-needs-resume", {
+      content: "Continue this imported task",
+      source: "vscode",
+    });
+
+    assert.equal(runtime.hasResumedThread("thread-needs-resume"), true);
 
     await service.dispose();
     await runtime.dispose();
