@@ -60,7 +60,7 @@
 ./scripts/dev-stack.sh up
 ```
 
-也可以用 npm 包一层：
+如果你更习惯用 npm 命令，也可以运行：
 
 ```bash
 npm run start:all

@@ -53,7 +53,7 @@ Use the one-click bootstrap entry by default:
 ./scripts/dev-stack.sh up
 ```
 
-You can also call the same flow through npm:
+If you prefer npm commands, you can run:
 
 ```bash
 npm run start:all
