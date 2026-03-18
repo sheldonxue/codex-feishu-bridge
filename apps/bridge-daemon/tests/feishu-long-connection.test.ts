@@ -382,6 +382,93 @@ describe("feishu long connection ingress", () => {
     }
   });
 
+  it("keeps mobile card actions working when Feishu omits open_message_id", async () => {
+    const harness = await createHarness();
+
+    try {
+      await harness.onMessage(
+        {
+          message_id: "om_mobile_init",
+          thread_id: "omt_mobile",
+          root_id: "om_root_mobile",
+          chat_id: "oc_chat_id",
+          message_type: "text",
+          content: JSON.stringify({ text: "/new" }),
+        },
+        {
+          sender_id: {
+            open_id: "ou_mobile",
+          },
+        },
+      );
+      await waitFor(
+        () => harness.requests.some((request) => requestContainsCardTitle(request, "Create Codex Task")),
+        "initial mobile draft card",
+      );
+
+      const firstCancelCard = await harness.onCardAction({
+        open_id: "ou_mobile",
+        action: {
+          tag: "button",
+          value: {
+            kind: "draft.cancel",
+            chatId: "oc_chat_id",
+            threadKey: "omt_mobile",
+            rootMessageId: "om_root_mobile",
+            revision: 1,
+          },
+        },
+      });
+      assert.ok(firstCancelCard);
+      assert.match(JSON.stringify(firstCancelCard), /Draft cancelled/);
+
+      const secondCancelCard = await harness.onCardAction({
+        open_id: "ou_mobile",
+        action: {
+          tag: "button",
+          value: {
+            kind: "draft.cancel",
+            chatId: "oc_chat_id",
+            threadKey: "omt_mobile",
+            rootMessageId: "om_root_mobile",
+            revision: 2,
+          },
+        },
+      });
+      assert.ok(secondCancelCard);
+      assert.match(JSON.stringify(secondCancelCard), /Draft cancelled/);
+
+      const createCard = await harness.onCardAction({
+        open_id: "ou_mobile",
+        action: {
+          tag: "button",
+          value: {
+            kind: "draft.create",
+            chatId: "oc_chat_id",
+            threadKey: "omt_mobile",
+            rootMessageId: "om_root_mobile",
+            revision: 3,
+          },
+        },
+      });
+
+      await waitFor(() => harness.service.listTasks().length === 1, "mobile task creation");
+      assert.ok(createCard);
+      assert.match(JSON.stringify(createCard), /Created task/);
+      assert.equal(
+        harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
+        false,
+      );
+      assert.ok(
+        harness.requests.filter(
+          (request) => request.method === "PATCH" && request.url.includes("/open-apis/im/v1/messages/"),
+        ).length >= 3,
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("supports slash bind, status, unbind, and approve commands without implicit root-thread creation", async () => {
     const harness = await createHarness();
     const originalRespondToRequest = harness.runtime.respondToRequest.bind(harness.runtime);

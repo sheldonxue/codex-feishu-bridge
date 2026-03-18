@@ -566,6 +566,26 @@ function summarizeCardAction(event: FeishuCardActionEvent | undefined): Record<s
   };
 }
 
+function buildCardActionDedupeId(event: FeishuCardActionEvent | undefined): string {
+  const value = event?.action?.value;
+  const token = event?.token?.trim();
+  if (token) {
+    return `token:${token}`;
+  }
+
+  return [
+    event?.open_message_id ?? "unknown",
+    value?.chatId ?? "unknown-chat",
+    value?.threadKey ?? "unknown-thread",
+    value?.rootMessageId ?? "",
+    value?.taskId ?? "",
+    value?.kind ?? "unknown",
+    String(value?.revision ?? ""),
+    event?.action?.option ?? "",
+    value?.requestId ?? "",
+  ].join(":");
+}
+
 export class FeishuBridge {
   private readonly stateFile: string;
   private readonly processedEventIds = new Set<string>();
@@ -1902,21 +1922,27 @@ export class FeishuBridge {
 
     if (value.kind.startsWith("draft.")) {
       if (value.kind === "draft.cancel") {
-        this.deleteThreadDraft(binding);
-        return this.buildDraftCard(
+        const existingDraft = this.getThreadDraft(binding);
+        if (existingDraft?.attachments.length) {
+          await Promise.allSettled(existingDraft.attachments.map((attachment) => rm(attachment.localPath, { force: true })));
+        }
+
+        const resetDraft: FeishuThreadDraft = {
+          ...createDefaultDraft(binding),
+          cardMessageId: event?.open_message_id ?? existingDraft?.cardMessageId,
+          cardRevision: 1,
+        };
+        await this.saveThreadDraft(resetDraft);
+        return this.renderDraftCard({
           binding,
-          {
-            ...createDefaultDraft(binding),
-            cardMessageId: event?.open_message_id,
-            cardRevision: 1,
-          },
-          "Draft cancelled. Send plain text in this thread to start a new draft.",
-        );
+          draft: resetDraft,
+          note: "Draft cancelled. Send plain text in this thread to start a new draft.",
+        });
       }
 
       const draft = this.getThreadDraft(binding) ?? createDefaultDraft(binding);
-      if (event?.open_message_id) {
-        draft.cardMessageId = event.open_message_id;
+      if (event?.open_message_id ?? draft.cardMessageId) {
+        draft.cardMessageId = event?.open_message_id ?? draft.cardMessageId;
       }
 
       switch (value.kind) {
@@ -2013,7 +2039,7 @@ export class FeishuBridge {
           this.deleteThreadDraft(binding);
 
           const boundTask = this.options.service.getTask(task.taskId) ?? task;
-          const messageId = event?.open_message_id;
+          const messageId = event?.open_message_id ?? draft.cardMessageId;
           if (messageId) {
             await this.saveThreadTaskCard({
               chatId: binding.chatId,
@@ -2021,7 +2047,7 @@ export class FeishuBridge {
               rootMessageId: binding.rootMessageId,
               taskId: task.taskId,
               messageId,
-              revision: 1,
+              revision: 0,
               note: `Created task ${task.taskId}.`,
             });
           }
@@ -2043,11 +2069,18 @@ export class FeishuBridge {
               });
           }
 
-          return await this.buildTaskControlCard(
-            boundTask,
-            binding,
-            (this.getThreadTaskCard(binding)?.revision ?? 0) + 1,
-            `Created task ${task.taskId}.${draft.prompt?.trim() || attachmentAssetIds.length ? " Initial message queued." : ""}`,
+          return (
+            (await this.renderTaskControlCard({
+              task: boundTask,
+              binding,
+              note: `Created task ${task.taskId}.${draft.prompt?.trim() || attachmentAssetIds.length ? " Initial message queued." : ""}`,
+            })) ??
+            (await this.buildTaskControlCard(
+              boundTask,
+              binding,
+              (this.getThreadTaskCard(binding)?.revision ?? 0) + 1,
+              `Created task ${task.taskId}.${draft.prompt?.trim() || attachmentAssetIds.length ? " Initial message queued." : ""}`,
+            ))
           );
         }
         default:
@@ -2056,21 +2089,27 @@ export class FeishuBridge {
 
       draft.cardRevision += 1;
       await this.saveThreadDraft(draft);
-      return this.buildDraftCard(binding, draft, draft.note);
+      return this.renderDraftCard({
+        binding,
+        draft,
+        note: draft.note,
+      });
     }
 
     const task = (value.taskId && this.options.service.getTask(value.taskId)) ?? this.options.service.findTaskByFeishuBinding(binding.chatId, [binding.threadKey, binding.rootMessageId].filter(Boolean) as string[]);
     if (!task) {
-      return this.buildDraftCard(
+      const existingDraft = this.getThreadDraft(binding);
+      const fallbackDraft: FeishuThreadDraft = {
+        ...createDefaultDraft(binding),
+        cardMessageId: event?.open_message_id ?? existingDraft?.cardMessageId,
+        cardRevision: 1,
+      };
+      await this.saveThreadDraft(fallbackDraft);
+      return this.renderDraftCard({
         binding,
-        {
-          ...createDefaultDraft(binding),
-          cardMessageId: event?.open_message_id,
-          cardRevision: 1,
-          note: "No bound task was found for this card.",
-        },
-        "No bound task was found for this card.",
-      );
+        draft: fallbackDraft,
+        note: "No bound task was found for this card.",
+      });
     }
 
     const currentCard = this.getThreadTaskCard(binding);
@@ -2190,15 +2229,19 @@ export class FeishuBridge {
       case "task.unbind":
         await this.options.service.unbindFeishuThread(task.taskId);
         this.deleteThreadTaskCard(binding);
-        return this.buildDraftCard(
-          binding,
-          {
+        {
+          const resetDraft: FeishuThreadDraft = {
             ...createDefaultDraft(binding),
-            cardMessageId: event?.open_message_id,
+            cardMessageId: event?.open_message_id ?? currentCard?.messageId,
             cardRevision: 1,
-          },
-          `Thread unbound from ${task.taskId}. Send plain text to start a new draft.`,
-        );
+          };
+          await this.saveThreadDraft(resetDraft);
+          return this.renderDraftCard({
+            binding,
+            draft: resetDraft,
+            note: `Thread unbound from ${task.taskId}. Send plain text to start a new draft.`,
+          });
+        }
       case "task.inspect.global": {
         const snapshot = this.options.service.getSnapshot();
         switch (action?.option) {
@@ -2227,20 +2270,27 @@ export class FeishuBridge {
         break;
     }
 
-    if (event?.open_message_id) {
+    if (event?.open_message_id ?? currentCard?.messageId) {
       await this.saveThreadTaskCard({
         chatId: binding.chatId,
         threadKey: binding.threadKey,
         rootMessageId: binding.rootMessageId,
         taskId: task.taskId,
-        messageId: event.open_message_id,
-        revision,
-        note,
+        messageId: event?.open_message_id ?? currentCard?.messageId ?? "",
+        revision: currentCard?.revision ?? 0,
+        note: currentCard?.note,
       });
     }
 
     const nextTask = this.options.service.getTask(task.taskId) ?? task;
-    return await this.buildTaskControlCard(nextTask, binding, revision, note);
+    return (
+      (await this.renderTaskControlCard({
+        task: nextTask,
+        binding,
+        note,
+      })) ??
+      (await this.buildTaskControlCard(nextTask, binding, revision, note))
+    );
   }
 
   private async startLongConnection(): Promise<void> {
@@ -2275,17 +2325,25 @@ export class FeishuBridge {
           }
         },
         onCardAction: async (event) => {
-          const dedupeId = `${event?.open_message_id ?? "unknown"}:${event?.action?.value?.kind ?? "unknown"}:${event?.action?.option ?? ""}:${event?.action?.value?.requestId ?? ""}`;
+          const dedupeId = buildCardActionDedupeId(event);
           if (this.processedEventIds.has(dedupeId)) {
             this.options.logger.info("deduped feishu long-connection card action", summarizeCardAction(event));
             return;
           }
 
-          this.options.logger.info("received feishu long-connection card action", summarizeCardAction(event));
-          const nextCard = await this.handleCardAction(event);
-          this.processedEventIds.add(dedupeId);
-          await this.persistState();
-          return nextCard;
+          try {
+            this.options.logger.info("received feishu long-connection card action", summarizeCardAction(event));
+            const nextCard = await this.handleCardAction(event);
+            this.processedEventIds.add(dedupeId);
+            await this.persistState();
+            return nextCard;
+          } catch (error) {
+            this.options.logger.warn("failed to process feishu long-connection card action", {
+              action: summarizeCardAction(event),
+              error,
+            });
+            throw error;
+          }
         },
       });
     } catch (error) {
