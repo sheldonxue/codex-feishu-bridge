@@ -15,7 +15,11 @@ The repository is built around three product surfaces:
 
 The OpenAI VSCode extension is not required as the runtime authority for this project.
 
-A common mobile handoff scenario is:
+Common mobile scenarios include:
+
+- start a new Codex thread directly from the Feishu app while away from the desk
+- keep pushing the work forward through plain-text conversation on the phone
+- get the result without first returning to the workstation
 
 - start or continue a task on the host machine
 - sync or bind that running task into a Feishu thread before leaving the desk
