@@ -127,8 +127,9 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
       }
 
       if (request.method === "GET" && url.pathname === "/tasks") {
+        const tasks = await service.syncRuntimeThreads();
         sendJson(response, 200, {
-          tasks: service.listTasks(),
+          tasks,
         });
         return;
       }

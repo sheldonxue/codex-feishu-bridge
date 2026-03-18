@@ -3,13 +3,15 @@ import { EventEmitter } from "node:events";
 import type { BridgeTask } from "@codex-feishu-bridge/protocol";
 
 import { BridgeClient, type BridgeSocket, type BridgeSocketFrame } from "./bridge-client";
-import { applyDaemonSnapshot, createEmptySnapshot, type ExtensionSnapshot } from "./task-model";
+import { applyDaemonSnapshot, createEmptySnapshot, sortTasks, type ExtensionSnapshot } from "./task-model";
 
 export class TaskStore {
+  private static readonly HOST_THREAD_REFRESH_INTERVAL_MS = 5_000;
   private readonly emitter = new EventEmitter();
   private snapshot: ExtensionSnapshot = createEmptySnapshot();
   private socket: BridgeSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private pollTimer: NodeJS.Timeout | null = null;
   private disposed = false;
 
   constructor(private readonly client: BridgeClient) {}
@@ -36,6 +38,7 @@ export class TaskStore {
   async start(): Promise<void> {
     await this.refresh();
     this.connectSocket();
+    this.startPolling();
   }
 
   async refresh(): Promise<void> {
@@ -59,6 +62,10 @@ export class TaskStore {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
     this.emitter.removeAllListeners();
   }
@@ -115,5 +122,25 @@ export class TaskStore {
       void this.refresh().catch(() => undefined);
       this.connectSocket();
     }, 3000);
+  }
+
+  private startPolling(): void {
+    if (this.pollTimer || this.disposed) {
+      return;
+    }
+
+    this.pollTimer = setInterval(() => {
+      void this.refreshTasksOnly().catch(() => undefined);
+    }, TaskStore.HOST_THREAD_REFRESH_INTERVAL_MS);
+  }
+
+  private async refreshTasksOnly(): Promise<void> {
+    const tasks = await this.client.listTasks();
+    this.snapshot = {
+      ...this.snapshot,
+      tasks: sortTasks(tasks),
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    this.emitter.emit("changed");
   }
 }

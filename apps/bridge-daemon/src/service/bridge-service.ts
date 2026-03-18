@@ -202,6 +202,10 @@ function mapTurnStatus(status: CodexTurnDescriptor["status"]): TaskStatus {
   }
 }
 
+function shouldAutoImportRuntimeThread(status: TaskStatus): boolean {
+  return status === "queued" || status === "running" || status === "awaiting-approval" || status === "blocked";
+}
+
 function approvalStateFromDecision(decision: CodexApprovalDecision): ApprovalState {
   switch (decision) {
     case "accept":
@@ -434,6 +438,22 @@ export class BridgeService {
 
   async listModels(): Promise<CodexModelDescriptor[]> {
     return this.options.runtime.listModels();
+  }
+
+  async syncRuntimeThreads(): Promise<BridgeTask[]> {
+    try {
+      const runtimeThreads = await this.options.runtime.listThreads();
+      const changed = this.applyRuntimeThreads(runtimeThreads, {
+        importNewActiveOnly: true,
+      });
+      if (changed) {
+        await this.persistState();
+      }
+    } catch (error) {
+      this.options.logger.warn("failed to sync runtime threads", error);
+    }
+
+    return this.listTasks();
   }
 
   findTaskByFeishuBinding(chatId: string | undefined, lookupIds: string[]): BridgeTask | null {
@@ -1084,45 +1104,84 @@ export class BridgeService {
   private async reconcilePersistedTasks(): Promise<void> {
     try {
       const runtimeThreads = await this.options.runtime.listThreads();
-      const runtimeThreadsById = new Map(runtimeThreads.map((thread) => [thread.id, thread]));
-      let changed = false;
-
-      for (const task of this.tasks.values()) {
-        const runtimeThread = runtimeThreadsById.get(task.threadId);
-        if (!runtimeThread) {
-          if (task.activeTurnId) {
-            this.clearTurnTracking(task.activeTurnId);
-            task.activeTurnId = undefined;
-            changed = true;
-          }
-          changed = this.expirePendingApprovals(task) || changed;
-          continue;
-        }
-
-        task.title = runtimeThread.name ?? task.title;
-        task.workspaceRoot = runtimeThread.cwd ?? task.workspaceRoot;
-        const runtimeStatus = mapRuntimeStatus(runtimeThread.status);
-        if (task.status !== runtimeStatus) {
-          task.status = runtimeStatus;
-          changed = true;
-        }
-        if (runtimeStatus === "idle" || runtimeStatus === "completed" || runtimeStatus === "failed" || runtimeStatus === "interrupted") {
-          if (task.activeTurnId) {
-            this.clearTurnTracking(task.activeTurnId);
-            task.activeTurnId = undefined;
-            changed = true;
-          }
-          changed = this.expirePendingApprovals(task) || changed;
-        }
-        this.touchTask(task, runtimeThread.updatedAt ?? task.updatedAt);
-      }
-
+      const changed = this.applyRuntimeThreads(runtimeThreads, {
+        importNewActiveOnly: true,
+      });
       if (changed) {
         await this.persistState();
       }
     } catch (error) {
       this.options.logger.warn("failed to reconcile persisted tasks", error);
     }
+  }
+
+  private applyRuntimeThreads(
+    runtimeThreads: CodexThreadDescriptor[],
+    options: {
+      importNewActiveOnly: boolean;
+    },
+  ): boolean {
+    const runtimeThreadsById = new Map(runtimeThreads.map((thread) => [thread.id, thread]));
+    let changed = false;
+
+    for (const task of this.tasks.values()) {
+      const runtimeThread = runtimeThreadsById.get(task.threadId);
+      if (!runtimeThread) {
+        if (task.activeTurnId) {
+          this.clearTurnTracking(task.activeTurnId);
+          task.activeTurnId = undefined;
+          changed = true;
+        }
+        changed = this.expirePendingApprovals(task) || changed;
+        continue;
+      }
+
+      const nextTitle = runtimeThread.name ?? task.title;
+      const nextWorkspaceRoot = runtimeThread.cwd ?? task.workspaceRoot;
+      const nextStatus = mapRuntimeStatus(runtimeThread.status);
+      const nextUpdatedAt = runtimeThread.updatedAt ?? task.updatedAt;
+
+      if (task.title !== nextTitle) {
+        task.title = nextTitle;
+        changed = true;
+      }
+      if (task.workspaceRoot !== nextWorkspaceRoot) {
+        task.workspaceRoot = nextWorkspaceRoot;
+        changed = true;
+      }
+      if (task.status !== nextStatus) {
+        task.status = nextStatus;
+        changed = true;
+      }
+      if (task.updatedAt !== nextUpdatedAt) {
+        changed = true;
+      }
+      if (nextStatus === "idle" || nextStatus === "completed" || nextStatus === "failed" || nextStatus === "interrupted") {
+        if (task.activeTurnId) {
+          this.clearTurnTracking(task.activeTurnId);
+          task.activeTurnId = undefined;
+          changed = true;
+        }
+        changed = this.expirePendingApprovals(task) || changed;
+      }
+      this.touchTask(task, nextUpdatedAt);
+    }
+
+    for (const descriptor of runtimeThreads) {
+      if (this.tasks.has(descriptor.id)) {
+        continue;
+      }
+
+      const runtimeStatus = mapRuntimeStatus(descriptor.status);
+      if (options.importNewActiveOnly && !shouldAutoImportRuntimeThread(runtimeStatus)) {
+        continue;
+      }
+
+      this.upsertTaskFromDescriptor(descriptor, "manual-import");
+      changed = true;
+    }
+
+    return changed;
   }
 
   private expirePendingApprovals(task: BridgeTask): boolean {
