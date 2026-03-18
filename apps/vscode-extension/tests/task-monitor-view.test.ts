@@ -12,7 +12,7 @@ describe("task monitor view source", () => {
 
     assert.match(source, /<button data-action="import-recent-threads"[\s\S]*>Import Recent Host Threads<\/button>/);
     assert.match(source, /id="import-limit"/);
-    assert.match(source, /vscode\.postMessage\(\{ type: "import-recent-threads", limit: importRecentLimit \}\);/);
+    assert.match(source, /postPendingButtonMessage\(target, \{ type: "import-recent-threads", limit: importRecentLimit \}\);/);
   });
 
   it("routes destructive local-task actions through the extension host instead of webview confirm", () => {
@@ -26,11 +26,11 @@ describe("task monitor view source", () => {
     assert.match(source, /data-action="delete-local-tasks"[\s\S]*>Delete Selected Threads<\/button>/);
     assert.doesNotMatch(source, /window\.confirm\(/);
     assert.doesNotMatch(source, /showWarningMessage\(/);
-    assert.match(source, /case "forget-imported-tasks":\s*vscode\.postMessage\(\{ type: "forget-imported-tasks" \}\);\s*return;/s);
-    assert.match(source, /case "forget-local-task":[\s\S]*vscode\.postMessage\(\{ type: "forget-local-task", taskId \}\);\s*return;/s);
-    assert.match(source, /case "forget-local-tasks":[\s\S]*vscode\.postMessage\(\{ type: "forget-local-tasks", taskIds \}\);\s*return;/s);
-    assert.match(source, /case "delete-local-task":[\s\S]*vscode\.postMessage\(\{ type: "delete-local-task", taskId \}\);\s*return;/s);
-    assert.match(source, /case "delete-local-tasks":[\s\S]*vscode\.postMessage\(\{ type: "delete-local-tasks", taskIds \}\);\s*return;/s);
+    assert.match(source, /case "forget-imported-tasks":\s*postPendingButtonMessage\(target, \{ type: "forget-imported-tasks" \}\);\s*return;/s);
+    assert.match(source, /case "forget-local-task":[\s\S]*postPendingButtonMessage\(target, \{ type: "forget-local-task", taskId \}\);\s*return;/s);
+    assert.match(source, /case "forget-local-tasks":[\s\S]*postPendingButtonMessage\(target, \{ type: "forget-local-tasks", taskIds \}\);\s*return;/s);
+    assert.match(source, /case "delete-local-task":[\s\S]*postPendingButtonMessage\(target, \{ type: "delete-local-task", taskId \}\);\s*return;/s);
+    assert.match(source, /case "delete-local-tasks":[\s\S]*postPendingButtonMessage\(target, \{ type: "delete-local-tasks", taskIds \}\);\s*return;/s);
     assert.match(source, /private async confirmMonitorAction\(params:/);
     assert.match(source, /showQuickPick<MonitorConfirmOption>/);
     assert.match(source, /label: "Cancel"/);
@@ -54,7 +54,8 @@ describe("task monitor view source", () => {
     assert.match(source, /Enter<\/code> sends/);
     assert.match(source, /Shift\+Enter/);
     assert.match(source, /Ctrl\/Cmd\+Enter/);
-    assert.match(source, /function sendCurrentComposerMessage\(\)/);
+    assert.match(source, /function sendCurrentComposerMessage\(button\)/);
+    assert.match(source, /const sendButton = document\.querySelector\('button\[data-action="send-message"\]'\);/);
     assert.match(source, /event\.isComposing \|\| event\.key !== "Enter" \|\| event\.shiftKey/);
   });
 
@@ -73,6 +74,12 @@ describe("task monitor view source", () => {
     assert.match(source, /Retry Last Turn<\/button>/);
     assert.match(source, /title="Create a new topic in the default Feishu group and bind this task to it for mobile follow-up\."/);
     assert.match(source, /title="Re-fetch the current daemon snapshot and any host-thread updates\."/);
+    assert.match(source, /button\.pending::before/);
+    assert.match(source, /@keyframes monitor-spin/);
+    assert.match(source, /function startPendingButton\(button\)/);
+    assert.match(source, /function finishPendingAction\(requestId\)/);
+    assert.match(source, /function postPendingButtonMessage\(button, message\)/);
+    assert.match(source, /type: "action-finished"/);
   });
 
   it("renders task origin badges alongside feishu bindings in the monitor cards", () => {

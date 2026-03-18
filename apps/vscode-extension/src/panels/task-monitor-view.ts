@@ -108,6 +108,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
       content?: string;
       attachmentPaths?: string[];
       diffPath?: string;
+      pendingRequestId?: string;
       requestId?: string;
       decision?: "accept" | "decline" | "cancel";
       enabled?: boolean;
@@ -116,23 +117,28 @@ export class TaskMonitorPanel implements vscode.Disposable {
       executionProfile?: TaskExecutionProfile;
     };
 
+    let actionSucceeded = false;
     try {
       switch (payload.type) {
         case "ready":
+          actionSucceeded = true;
           await this.postState();
           return;
         case "select-task":
           await this.setSelectedTask(payload.taskId);
+          actionSucceeded = true;
           await this.postState();
           return;
         case "refresh":
           await this.options.store.refresh();
+          actionSucceeded = true;
           await this.postState();
           return;
         case "import-recent-threads": {
           const limit = Math.max(1, Math.min(50, Math.trunc(payload.limit ?? 8) || 8));
           const imported = await this.options.client.importRecentThreads(limit);
           await this.options.store.refresh();
+          actionSucceeded = true;
           if (imported[0]) {
             await this.focusTask(imported[0].taskId);
           }
@@ -150,6 +156,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           }
           await this.options.client.forgetImportedTasks();
           await this.options.store.refresh();
+          actionSucceeded = true;
           await this.postState();
           return;
         }
@@ -160,10 +167,12 @@ export class TaskMonitorPanel implements vscode.Disposable {
             this.showLocalImportedTasks,
           );
           await this.options.setShowLocalImportedTasks(this.showLocalImportedTasks);
+          actionSucceeded = true;
           await this.postState();
           return;
         }
         case "open-status":
+          actionSucceeded = true;
           await this.options.openStatus();
           return;
         case "send-message": {
@@ -179,6 +188,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
             replyToFeishu: task.feishuBinding ? task.desktopReplySyncToFeishu : false,
             executionProfile: payload.executionProfile,
           });
+          actionSucceeded = true;
           await this.postWebviewMessage({
             type: "composer-cleared",
             taskId: task.taskId,
@@ -197,6 +207,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           if (!files?.length) {
             return;
           }
+          actionSucceeded = true;
           await this.postWebviewMessage({
             type: "composer-attachments-selected",
             taskId: task.taskId,
@@ -212,6 +223,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           await this.options.client.updateTaskSettings(task.taskId, {
             executionProfile: payload.executionProfile,
           });
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -221,6 +233,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
             return;
           }
           await this.options.client.interruptTask(task.taskId);
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -234,6 +247,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
             source: "vscode",
             replyToFeishu: task.feishuBinding ? task.desktopReplySyncToFeishu : false,
           });
+          actionSucceeded = true;
           return;
         }
         case "toggle-feishu-sync": {
@@ -244,6 +258,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           await this.options.client.updateTaskSettings(task.taskId, {
             desktopReplySyncToFeishu: Boolean(payload.enabled),
           });
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -254,6 +269,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           }
           await this.options.client.bindTaskToNewFeishuTopic(task.taskId);
           await this.options.store.refresh();
+          actionSucceeded = true;
           await vscode.window.showInformationMessage("Created a new Feishu topic and bound this task.");
           return;
         }
@@ -267,6 +283,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
             return;
           }
           await this.options.client.resolveApproval(task.taskId, approval, payload.decision);
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -275,6 +292,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           if (!task) {
             return;
           }
+          actionSucceeded = true;
           await this.options.openDiff(task, payload.diffPath);
           return;
         }
@@ -284,6 +302,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
             return;
           }
           await this.options.client.unbindFeishuThread(task.taskId);
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -305,6 +324,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           if (this.selectedTaskId === task.taskId) {
             await this.setSelectedTask(undefined);
           }
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -328,6 +348,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           if (this.selectedTaskId && tasks.some((task) => task.taskId === this.selectedTaskId)) {
             await this.setSelectedTask(undefined);
           }
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -349,6 +370,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           if (this.selectedTaskId === task.taskId) {
             await this.setSelectedTask(undefined);
           }
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -372,6 +394,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
           if (this.selectedTaskId && tasks.some((task) => task.taskId === this.selectedTaskId)) {
             await this.setSelectedTask(undefined);
           }
+          actionSucceeded = true;
           await this.options.store.refresh();
           return;
         }
@@ -382,6 +405,14 @@ export class TaskMonitorPanel implements vscode.Disposable {
       await vscode.window.showErrorMessage(
         error instanceof Error ? `Codex monitor action failed: ${error.message}` : "Codex monitor action failed.",
       );
+    } finally {
+      if (payload.pendingRequestId) {
+        await this.postWebviewMessage({
+          type: "action-finished",
+          pendingRequestId: payload.pendingRequestId,
+          ok: actionSucceeded,
+        });
+      }
     }
   }
 
@@ -641,9 +672,32 @@ export class TaskMonitorPanel implements vscode.Disposable {
       button.danger {
         color: var(--danger);
       }
+      button.pending {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      button.pending::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        animation: monitor-spin 0.75s linear infinite;
+        flex: 0 0 auto;
+      }
       button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+      }
+      @keyframes monitor-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
       }
       .task-list {
         display: grid;
@@ -897,6 +951,8 @@ export class TaskMonitorPanel implements vscode.Disposable {
       let conversationScrollByTask = {};
       let selectedLocalTaskIds = {};
       let multiSelectMode = false;
+      let pendingActionRequestIds = {};
+      let nextPendingActionCounter = 0;
 
       function escapeHtml(value) {
         return String(value ?? "")
@@ -909,6 +965,65 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
       function pre(value) {
         return \`<pre>\${escapeHtml(value)}</pre>\`;
+      }
+
+      function nextPendingActionRequestId() {
+        nextPendingActionCounter += 1;
+        return "pending-action-" + String(nextPendingActionCounter);
+      }
+
+      function startPendingButton(button) {
+        if (!(button instanceof HTMLButtonElement)) {
+          return "";
+        }
+
+        const requestId = nextPendingActionRequestId();
+        pendingActionRequestIds[requestId] = true;
+        button.dataset.pendingRequestId = requestId;
+        button.classList.add("pending");
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        return requestId;
+      }
+
+      function finishPendingAction(requestId) {
+        if (!requestId) {
+          return;
+        }
+
+        delete pendingActionRequestIds[requestId];
+        const button = document.querySelector('[data-pending-request-id="' + requestId + '"]');
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        delete button.dataset.pendingRequestId;
+        button.classList.remove("pending");
+        button.removeAttribute("aria-busy");
+        button.disabled = false;
+      }
+
+      function finishAllPendingActions() {
+        const requestIds = Object.keys(pendingActionRequestIds);
+        pendingActionRequestIds = {};
+        requestIds.forEach((requestId) => {
+          const button = document.querySelector('[data-pending-request-id="' + requestId + '"]');
+          if (!(button instanceof HTMLButtonElement)) {
+            return;
+          }
+          delete button.dataset.pendingRequestId;
+          button.classList.remove("pending");
+          button.removeAttribute("aria-busy");
+          button.disabled = false;
+        });
+      }
+
+      function postPendingButtonMessage(button, message) {
+        const requestId = startPendingButton(button);
+        vscode.postMessage({
+          ...message,
+          pendingRequestId: requestId,
+        });
       }
 
       function currentTaskId() {
@@ -1412,7 +1527,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
         return "Pick a task from the list above. Opened as an editor tab, this monitor keeps conversation, approvals, diffs, and the desktop composer on one page.";
       }
 
-      function sendCurrentComposerMessage() {
+      function sendCurrentComposerMessage(button) {
         const taskId = currentTaskId();
         const composer = document.getElementById("composer");
         const content = composer instanceof HTMLTextAreaElement ? composer.value.trim() : "";
@@ -1421,7 +1536,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
         if ((!content && attachmentPaths.length === 0) || !taskId) {
           return;
         }
-        vscode.postMessage({
+        postPendingButtonMessage(button, {
           type: "send-message",
           taskId,
           content,
@@ -1580,7 +1695,8 @@ export class TaskMonitorPanel implements vscode.Disposable {
               return;
             }
             event.preventDefault();
-            sendCurrentComposerMessage();
+            const sendButton = document.querySelector('button[data-action="send-message"]');
+            sendCurrentComposerMessage(sendButton);
           });
         }
 
@@ -1685,7 +1801,13 @@ export class TaskMonitorPanel implements vscode.Disposable {
       }
 
       window.addEventListener("message", (event) => {
+        if (event.data?.type === "action-finished") {
+          finishPendingAction(event.data.pendingRequestId);
+          return;
+        }
+
         if (event.data?.type === "composer-attachments-selected") {
+          finishPendingAction(event.data.pendingRequestId);
           const taskId = event.data.taskId;
           if (!taskId || !Array.isArray(event.data.attachmentPaths)) {
             return;
@@ -1697,6 +1819,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
         }
 
         if (event.data?.type === "composer-cleared") {
+          finishPendingAction(event.data.pendingRequestId);
           clearComposerState(event.data.taskId);
           render();
           return;
@@ -1705,6 +1828,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
         if (event.data?.type !== "state") {
           return;
         }
+        finishAllPendingActions();
         state = event.data.state;
         if (state.selectedTask?.taskId && !composerExecutionProfiles[state.selectedTask.taskId]) {
           composerExecutionProfiles[state.selectedTask.taskId] = defaultComposerExecutionProfile();
@@ -1755,14 +1879,14 @@ export class TaskMonitorPanel implements vscode.Disposable {
             const importLimitInput = document.getElementById("import-limit");
             const limit = importLimitInput instanceof HTMLInputElement ? Number(importLimitInput.value) : importRecentLimit;
             importRecentLimit = Math.max(1, Math.min(50, Math.trunc(limit || importRecentLimit)));
-            vscode.postMessage({ type: "import-recent-threads", limit: importRecentLimit });
+            postPendingButtonMessage(target, { type: "import-recent-threads", limit: importRecentLimit });
             return;
           }
           case "refresh":
-            vscode.postMessage({ type: "refresh" });
+            postPendingButtonMessage(target, { type: "refresh" });
             return;
           case "forget-imported-tasks":
-            vscode.postMessage({ type: "forget-imported-tasks" });
+            postPendingButtonMessage(target, { type: "forget-imported-tasks" });
             return;
           case "open-status":
             vscode.postMessage({ type: "open-status" });
@@ -1781,7 +1905,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
             render();
             return;
           case "send-message": {
-            sendCurrentComposerMessage();
+            sendCurrentComposerMessage(target);
             return;
           }
           case "interrupt":
@@ -1791,41 +1915,41 @@ export class TaskMonitorPanel implements vscode.Disposable {
             if (!taskId) {
               return;
             }
-            vscode.postMessage({ type: action, taskId });
+            postPendingButtonMessage(target, { type: action, taskId });
             return;
           case "forget-local-task":
             if (!taskId) {
               return;
             }
-            vscode.postMessage({ type: "forget-local-task", taskId });
+            postPendingButtonMessage(target, { type: "forget-local-task", taskId });
             return;
           case "forget-local-tasks": {
             const taskIds = selectedVisibleLocalTaskIds();
             if (!taskIds.length) {
               return;
             }
-            vscode.postMessage({ type: "forget-local-tasks", taskIds });
+            postPendingButtonMessage(target, { type: "forget-local-tasks", taskIds });
             return;
           }
           case "delete-local-task":
             if (!taskId) {
               return;
             }
-            vscode.postMessage({ type: "delete-local-task", taskId });
+            postPendingButtonMessage(target, { type: "delete-local-task", taskId });
             return;
           case "delete-local-tasks": {
             const taskIds = selectedVisibleLocalTaskIds();
             if (!taskIds.length) {
               return;
             }
-            vscode.postMessage({ type: "delete-local-tasks", taskIds });
+            postPendingButtonMessage(target, { type: "delete-local-tasks", taskIds });
             return;
           }
           case "resolve-approval":
             if (!taskId || !target.dataset.requestId || !target.dataset.decision) {
               return;
             }
-            vscode.postMessage({
+            postPendingButtonMessage(target, {
               type: "resolve-approval",
               taskId,
               requestId: target.dataset.requestId,
