@@ -133,6 +133,7 @@ interface QueuedTaskMessage {
 interface ImportedConversationRefreshResult {
   changed: boolean;
   appendedMessages: ConversationMessage[];
+  latestMessageCreatedAt?: string;
 }
 
 interface RuntimeThreadUpdate {
@@ -1812,6 +1813,7 @@ export class BridgeService {
       const nextWorkspaceRoot = runtimeThread.cwd ?? task.workspaceRoot;
       const nextStatus = mapRuntimeStatus(runtimeThread.status);
       const nextUpdatedAt = runtimeThread.updatedAt ?? task.updatedAt;
+      let effectiveUpdatedAt = nextUpdatedAt;
       let importedConversationDelta: ConversationMessage[] = [];
 
       if (task.title !== nextTitle) {
@@ -1829,12 +1831,22 @@ export class BridgeService {
         changed = true;
         taskChanged = true;
       }
+      const shouldRefreshImportedConversation =
+        this.shouldRefreshImportedConversation(task, nextUpdatedAt);
+
       if (task.updatedAt !== nextUpdatedAt) {
         changed = true;
         taskChanged = true;
+      }
+      if (shouldRefreshImportedConversation) {
         const refreshResult = await this.refreshImportedTaskConversation(task);
         if (refreshResult.changed) {
           importedConversationDelta = refreshResult.appendedMessages;
+          changed = true;
+          taskChanged = true;
+          if (task.updatedAt === nextUpdatedAt) {
+            effectiveUpdatedAt = refreshResult.latestMessageCreatedAt ?? new Date().toISOString();
+          }
         }
       }
       if (nextStatus === "idle" || nextStatus === "completed" || nextStatus === "failed" || nextStatus === "interrupted") {
@@ -1849,7 +1861,7 @@ export class BridgeService {
           taskChanged = true;
         }
       }
-      this.touchTask(task, nextUpdatedAt);
+      this.touchTask(task, effectiveUpdatedAt);
       if (taskChanged) {
         updates.push({
           task: cloneTask(task),
@@ -2054,6 +2066,7 @@ export class BridgeService {
       return {
         changed: false,
         appendedMessages: [],
+        latestMessageCreatedAt: undefined,
       };
     }
 
@@ -2063,6 +2076,7 @@ export class BridgeService {
         return {
           changed: false,
           appendedMessages: [],
+          latestMessageCreatedAt: undefined,
         };
       }
 
@@ -2074,6 +2088,7 @@ export class BridgeService {
         return {
           changed: false,
           appendedMessages: [],
+          latestMessageCreatedAt: undefined,
         };
       }
 
@@ -2088,6 +2103,7 @@ export class BridgeService {
         return {
           changed: false,
           appendedMessages: [],
+          latestMessageCreatedAt: nextConversation.at(-1)?.createdAt,
         };
       }
 
@@ -2101,6 +2117,7 @@ export class BridgeService {
       return {
         changed: true,
         appendedMessages,
+        latestMessageCreatedAt: nextConversation.at(-1)?.createdAt,
       };
     } catch (error) {
       this.options.logger.warn("failed to hydrate imported task conversation", {
@@ -2111,6 +2128,7 @@ export class BridgeService {
       return {
         changed: false,
         appendedMessages: [],
+        latestMessageCreatedAt: undefined,
       };
     }
   }
@@ -2147,6 +2165,18 @@ export class BridgeService {
     }
 
     return this.usesImportedSyntheticConversation(task);
+  }
+
+  private shouldRefreshImportedConversation(task: BridgeTask, nextUpdatedAt: string): boolean {
+    if (!this.canRefreshImportedTaskConversation(task)) {
+      return false;
+    }
+
+    if (task.updatedAt !== nextUpdatedAt) {
+      return true;
+    }
+
+    return Boolean(task.feishuBinding);
   }
 
   private usesImportedSyntheticConversation(task: BridgeTask): boolean {

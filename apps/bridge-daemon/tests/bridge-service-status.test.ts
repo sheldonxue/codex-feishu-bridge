@@ -1021,6 +1021,153 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("refreshes a feishu-bound imported conversation even when the host thread updatedAt stays unchanged", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-bound-import-refresh-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-bound-import-refresh.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+
+    const writeRollout = async (lines: unknown[]): Promise<void> => {
+      await writeFile(
+        rolloutDiskPath,
+        lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
+        "utf8",
+      );
+    };
+
+    await writeRollout([
+      {
+        timestamp: "2026-03-19T00:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "First imported question",
+          local_images: [],
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "First imported answer",
+          phase: "commentary",
+        },
+      },
+    ]);
+
+    const stateDb = new DatabaseSync(path.join(config.codexHome, "state_5.sqlite"));
+    stateDb.exec(`
+      CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT NOT NULL
+      )
+    `);
+    stateDb
+      .prepare("INSERT INTO threads (id, rollout_path) VALUES (?, ?)")
+      .run("thread-bound-refresh", `/codex-home/${rolloutRelativePath}`);
+    stateDb.close();
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-bound-refresh",
+        name: "Bound imported refresh thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    await service.bindFeishuThread("thread-bound-refresh", {
+      chatId: "oc_bound_chat",
+      threadKey: "omt_bound_refresh",
+      rootMessageId: "om_bound_refresh",
+    });
+
+    await service.syncRuntimeThreads();
+
+    await writeRollout([
+      {
+        timestamp: "2026-03-19T00:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "First imported question",
+          local_images: [],
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "First imported answer",
+          phase: "commentary",
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:03.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "Second imported question",
+          local_images: [],
+        },
+      },
+      {
+        timestamp: "2026-03-19T00:00:04.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "Second imported answer",
+          phase: "final",
+        },
+      },
+    ]);
+
+    runtime.setThreads([
+      {
+        id: "thread-bound-refresh",
+        name: "Bound imported refresh thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+
+    const refreshed = await service.syncRuntimeThreads();
+    const refreshedTask = refreshed.find((task) => task.taskId === "thread-bound-refresh");
+    assert.deepEqual(
+      refreshedTask?.conversation.map((entry) => entry.content),
+      [
+        "First imported question",
+        "First imported answer",
+        "Second imported question",
+        "Second imported answer",
+      ],
+    );
+    assert.equal(refreshedTask?.latestSummary, "Second imported answer");
+    assert.equal(refreshedTask?.updatedAt, "2026-03-19T00:00:04.000Z");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("resumes imported host threads before sending the first new message", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
