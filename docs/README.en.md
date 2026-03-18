@@ -15,6 +15,13 @@ The repository is built around three product surfaces:
 
 The OpenAI VSCode extension is not required as the runtime authority for this project.
 
+A common mobile handoff scenario is:
+
+- start or continue a task on the host machine
+- sync or bind that running task into a Feishu thread before leaving the desk
+- keep watching replies, approvals, and interrupts from the phone
+- resume desktop takeover in VSCode when back at the workstation
+
 ## Highlights
 
 - CLI-first runtime with `codex app-server`
@@ -250,6 +257,14 @@ The current Feishu workflow is:
 5. Press `Create Task`.
 6. Continue the task with plain text in the same thread.
 7. Use the control card for status, interrupt, retry, approvals, inspect, and unbind actions.
+
+If a task is already running on the host machine, another recommended path is:
+
+1. Leave the task running on the desktop.
+2. Import or bind that task into the Feishu thread before leaving the desk.
+3. Keep tracking replies and approvals from the phone.
+4. Interrupt, retry, or steer from Feishu when needed.
+5. Resume the same thread from VSCode after returning to the desk.
 
 The mobile thread stays clean:
 
