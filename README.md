@@ -134,11 +134,84 @@ Set:
 If only the group name is known, resolve visible chats with:
 
 ```bash
-npm run feishu:resolve-chat -- --list
-npm run feishu:resolve-chat -- --name "Your Feishu Group Name"
+node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --list
+node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --name "Your Feishu Group Name"
 ```
 
 When `FEISHU_DEFAULT_CHAT_NAME` is present, `bridge-daemon` resolves the exact chat automatically at startup.
+
+### Feishu Console Setup
+
+Use this checklist to collect the values required by `docker/.env`.
+
+1. Create or open a self-built app in the Feishu Open Platform console.
+   Console entry:
+   `https://open.feishu.cn/app`
+
+2. Copy the application credentials.
+   In the app console, open the basic information page and copy:
+   - `App ID` -> `FEISHU_APP_ID`
+   - `App Secret` -> `FEISHU_APP_SECRET`
+
+3. Enable the bot capability and add the bot to the target group.
+   The bridge can only receive group messages after the app bot has joined the chat you want to use.
+
+4. Enable long-connection event subscription.
+   In the event subscription section, choose the long-connection mode and enable at least:
+   - `im.message.receive_v1`
+   - `card.action.trigger`
+
+5. Decide how to identify the default group.
+   Two supported options exist:
+   - recommended: set `FEISHU_DEFAULT_CHAT_NAME`
+   - fixed value: set `FEISHU_DEFAULT_CHAT_ID`
+
+   In practice, `chat_id` is usually easiest to resolve after the bot has already joined the group:
+
+   ```bash
+   node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --list
+   node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --name "Your Feishu Group Name"
+   ```
+
+   The first command lists visible chats, and the second resolves the exact `chat_id` for one group name.
+
+6. Only configure webhook security values if you intentionally keep the compatibility path enabled.
+   For the recommended long-connection path, these are not required:
+   - `FEISHU_VERIFICATION_TOKEN`
+   - `FEISHU_ENCRYPT_KEY`
+
+   If you want `/feishu/webhook` compatibility as well, copy them from the event and callback security section:
+   - `Verification Token` -> `FEISHU_VERIFICATION_TOKEN`
+   - `Encrypt Key` -> `FEISHU_ENCRYPT_KEY`
+
+### Minimal Feishu Environment Example
+
+Long-connection with automatic group-name resolution:
+
+```env
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=xxx
+FEISHU_DEFAULT_CHAT_NAME=Your Feishu Group Name
+```
+
+Long-connection with a fixed group id:
+
+```env
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=xxx
+FEISHU_DEFAULT_CHAT_ID=oc_xxx
+```
+
+### Feishu Troubleshooting
+
+If the bridge starts but nothing happens in the group, check these in order:
+
+- the app bot has actually been added to the target group
+- the target group matches `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME`
+- long-connection event subscription is enabled
+- `im.message.receive_v1` is enabled
+- `card.action.trigger` is enabled if you want card-first interaction
+- the bridge is reading the intended values from `docker/.env`
 
 The current Feishu workflow is:
 
