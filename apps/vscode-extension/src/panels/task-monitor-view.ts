@@ -803,6 +803,33 @@ export class TaskMonitorPanel implements vscode.Disposable {
         padding: 12px;
         display: grid;
         gap: 8px;
+        border-left-width: 5px;
+        background: rgba(255,255,255,0.02);
+      }
+      .message.role-cli {
+        border-color: rgba(180, 83, 9, 0.45);
+        border-left-color: rgba(180, 83, 9, 0.9);
+        background: linear-gradient(135deg, rgba(180, 83, 9, 0.16), rgba(180, 83, 9, 0.05));
+      }
+      .message.role-vscode {
+        border-color: rgba(30, 64, 175, 0.42);
+        border-left-color: rgba(37, 99, 235, 0.92);
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(15, 23, 42, 0.04));
+      }
+      .message.role-feishu {
+        border-color: rgba(17, 94, 89, 0.42);
+        border-left-color: rgba(13, 148, 136, 0.92);
+        background: linear-gradient(135deg, rgba(13, 148, 136, 0.15), rgba(15, 23, 42, 0.04));
+      }
+      .message.role-agent {
+        border-color: rgba(91, 33, 182, 0.4);
+        border-left-color: rgba(124, 58, 237, 0.92);
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(30, 41, 59, 0.05));
+      }
+      .message.role-system {
+        border-color: rgba(100, 116, 139, 0.38);
+        border-left-color: rgba(148, 163, 184, 0.88);
+        background: linear-gradient(135deg, rgba(100, 116, 139, 0.13), rgba(15, 23, 42, 0.03));
       }
       .message header {
         display: flex;
@@ -822,6 +849,8 @@ export class TaskMonitorPanel implements vscode.Disposable {
       .badge.feishu { background: rgba(17, 94, 89, 0.15); }
       .badge.vscode { background: rgba(30, 64, 175, 0.12); }
       .badge.runtime { background: rgba(148, 163, 184, 0.16); }
+      .badge.agent { background: rgba(124, 58, 237, 0.16); }
+      .badge.system { background: rgba(100, 116, 139, 0.18); }
       pre {
         margin: 0;
         white-space: pre-wrap;
@@ -1310,11 +1339,12 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
         return state.selectedTask.conversation
           .map((message) => \`
-            <article class="message">
+            <article class="message role-\${escapeHtml(messageRole(message))}">
               <header>
                 <div class="chips">
-                  <span class="badge \${escapeHtml(message.surface)}">\${escapeHtml(message.surface)}</span>
+                  <span class="badge \${escapeHtml(messageRole(message))}">\${escapeHtml(messageRoleLabel(message))}</span>
                   <span class="chip">\${escapeHtml(message.author)}</span>
+                  \${messageMetaChip(message)}
                 </div>
                 <span class="muted">\${escapeHtml(new Date(message.createdAt).toLocaleString())}</span>
               </header>
@@ -1323,6 +1353,49 @@ export class TaskMonitorPanel implements vscode.Disposable {
             </article>
           \`)
           .join("");
+      }
+
+      function messageRole(message) {
+        if (message.author === "agent") {
+          return "agent";
+        }
+        if (message.author === "system") {
+          return "system";
+        }
+        if (message.surface === "vscode") {
+          return "vscode";
+        }
+        if (message.surface === "feishu") {
+          return "feishu";
+        }
+        return "cli";
+      }
+
+      function messageRoleLabel(message) {
+        switch (messageRole(message)) {
+          case "agent":
+            return "AGENT";
+          case "system":
+            return "SYSTEM";
+          case "vscode":
+            return "VSCODE";
+          case "feishu":
+            return "FEISHU";
+          default:
+            return "CLI";
+        }
+      }
+
+      function messageSurfaceLabel(message) {
+        if (message.author === "agent" || message.author === "system") {
+          return "via " + String(message.surface ?? "runtime").toUpperCase();
+        }
+        return "";
+      }
+
+      function messageMetaChip(message) {
+        const label = messageSurfaceLabel(message);
+        return label ? \`<span class="chip">\${escapeHtml(label)}</span>\` : "";
       }
 
       function approvalsList() {

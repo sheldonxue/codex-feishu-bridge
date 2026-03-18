@@ -112,6 +112,25 @@ describe("task monitor view source", () => {
     assert.match(source, /<strong>Queued Next Turns<\/strong>/);
   });
 
+  it("color-codes conversation blocks for cli, vscode, feishu, and agent messages", () => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const sourcePath = path.resolve(currentDir, "../src/panels/task-monitor-view.ts");
+    const source = readFileSync(sourcePath, "utf8");
+
+    assert.match(source, /\.message\.role-cli/);
+    assert.match(source, /\.message\.role-vscode/);
+    assert.match(source, /\.message\.role-feishu/);
+    assert.match(source, /\.message\.role-agent/);
+    assert.match(source, /class="message role-\\\$\{escapeHtml\(messageRole\(message\)\)\}"/);
+    assert.match(source, /function messageRole\(message\)/);
+    assert.match(source, /return "cli";/);
+    assert.match(source, /return "VSCODE";/);
+    assert.match(source, /return "FEISHU";/);
+    assert.match(source, /return "AGENT";/);
+    assert.match(source, /function messageMetaChip\(message\)/);
+    assert.match(source, /return "via " \+ String\(message\.surface \?\? "runtime"\)\.toUpperCase\(\);/);
+  });
+
   it("renders the monitor as an editor panel entry point instead of a sidebar view contribution", () => {
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const packagePath = path.resolve(currentDir, "../package.json");
