@@ -246,6 +246,16 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
           return;
         }
 
+        if (request.method === "POST" && segments.length === 4 && segments[2] === "feishu" && segments[3] === "topic") {
+          if (!feishu?.enabled) {
+            sendJson(response, 503, { error: "feishu bridge is not configured" });
+            return;
+          }
+          const task = await feishu.bindTaskToNewTopic(taskId);
+          sendJson(response, 200, { task });
+          return;
+        }
+
         if (request.method === "POST" && segments.length === 4 && segments[2] === "feishu" && segments[3] === "unbind") {
           const task = await service.unbindFeishuThread(taskId);
           sendJson(response, 200, { task });

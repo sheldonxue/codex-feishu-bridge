@@ -656,6 +656,45 @@ export class FeishuBridge {
     };
   }
 
+  async bindTaskToNewTopic(taskId: string): Promise<BridgeTask> {
+    const defaultChatId = this.options.config.feishuDefaultChatId;
+    if (!this.enabled || !defaultChatId) {
+      throw new Error("Feishu bridge is not configured with a default chat.");
+    }
+
+    const task = this.options.service.getTask(taskId);
+    if (!task) {
+      throw new Error(`Unknown task: ${taskId}`);
+    }
+    if (task.feishuBinding) {
+      throw new Error(`Task ${taskId} is already bound to Feishu. Unbind it before creating a new topic.`);
+    }
+
+    const rootMessageId = await this.sendChatMessage(
+      defaultChatId,
+      [
+        "Codex task linked from VSCode monitor",
+        `Task: ${task.title.replace(/\s+/g, " ").trim()}`,
+        `Task ID: ${task.taskId}`,
+        "Reply in this thread to continue from Feishu.",
+      ].join("\n"),
+    );
+    const binding: FeishuThreadBinding = {
+      chatId: defaultChatId,
+      threadKey: rootMessageId,
+      rootMessageId,
+    };
+
+    const boundTask = await this.options.service.bindFeishuThread(task.taskId, binding);
+    await this.renderTaskControlCard({
+      task: this.options.service.getTask(task.taskId) ?? boundTask,
+      binding,
+      replyTargetId: rootMessageId,
+      note: "Bound from the VSCode monitor.",
+    });
+    return this.options.service.getTask(task.taskId) ?? boundTask;
+  }
+
   private async handleServiceEvent(payload: BridgeServiceEvent): Promise<void> {
     if (!this.enabled) {
       return;

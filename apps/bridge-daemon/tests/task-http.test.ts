@@ -12,6 +12,7 @@ import { WebSocket } from "ws";
 import { createBridgeTask } from "@codex-feishu-bridge/protocol";
 import { createConsoleLogger, prepareBridgeDirectories, writeJsonFile } from "@codex-feishu-bridge/shared";
 
+import { FeishuBridge } from "../src/feishu/bridge";
 import { createCodexRuntime } from "../src/runtime";
 import { createBridgeHttpServer } from "../src/server/http";
 import { BridgeService } from "../src/service/bridge-service";
@@ -26,6 +27,19 @@ async function waitFor(check: () => boolean, message: string): Promise<void> {
   }
 
   throw new Error(`Timed out waiting for ${message}`);
+}
+
+function parseFeishuText(requestBody?: string): string {
+  if (!requestBody) {
+    return "";
+  }
+
+  const payload = JSON.parse(requestBody) as { content?: string };
+  if (!payload.content) {
+    return "";
+  }
+
+  return (JSON.parse(payload.content) as { text?: string }).text ?? "";
 }
 
 describe("bridge daemon task http server", () => {
@@ -225,6 +239,126 @@ describe("bridge daemon task http server", () => {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
       });
+      await service.dispose();
+      await runtime.dispose();
+    }
+  });
+
+  it("creates a new default Feishu topic and binds an existing task through HTTP", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace, {
+      BRIDGE_PORT: "0",
+      BRIDGE_WS_PATH: "/ws",
+      CODEX_RUNTIME_BACKEND: "mock",
+      MOCK_AUTO_COMPLETE_LOGIN: "true",
+      FEISHU_BASE_URL: "https://open.feishu.cn",
+      FEISHU_APP_ID: "cli-app-id",
+      FEISHU_APP_SECRET: "cli-app-secret",
+      FEISHU_DEFAULT_CHAT_ID: "oc_chat_id",
+      FEISHU_VERIFICATION_TOKEN: "",
+      FEISHU_ENCRYPT_KEY: "",
+    });
+    const logger = createConsoleLogger("bridge-daemon-feishu-topic-test");
+    const requests: Array<{ method: string; url: string; body?: string }> = [];
+
+    await prepareBridgeDirectories(config);
+
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const body =
+        typeof init?.body === "string"
+          ? init.body
+          : init?.body === undefined || init?.body === null
+            ? undefined
+            : String(init.body);
+      requests.push({
+        method: init?.method ?? "GET",
+        url,
+        body,
+      });
+
+      if (!url.startsWith("https://open.feishu.cn")) {
+        return originalFetch(input, init);
+      }
+
+      if (url.endsWith("/open-apis/auth/v3/tenant_access_token/internal")) {
+        return new Response(JSON.stringify({ code: 0, tenant_access_token: "tenant-token", expire: 7200 }), {
+          status: 200,
+        });
+      }
+
+      if (url.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")) {
+        return new Response(JSON.stringify({ code: 0, data: { message_id: "om_root_new_topic" } }), {
+          status: 200,
+        });
+      }
+
+      if (url.includes("/open-apis/im/v1/messages/")) {
+        return new Response(JSON.stringify({ code: 0, data: { message_id: "om_reply_task_card" } }), {
+          status: 200,
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const runtime = createCodexRuntime(config, logger);
+    const service = new BridgeService({ config, logger, runtime });
+    const feishu = new FeishuBridge({
+      config,
+      logger,
+      service,
+      longConnectionFactory: async () => ({
+        stop: async () => {},
+      }),
+    });
+    const server = createBridgeHttpServer({ config, feishu, logger, runtime, service });
+
+    try {
+      await runtime.start();
+      await service.initialize();
+      await feishu.initialize();
+
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve);
+      });
+
+      const address = server.address() as AddressInfo;
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+      const task = await service.createTask({
+        title: "Desk handoff task",
+      });
+
+      const response = await fetch(`${baseUrl}/tasks/${task.taskId}/feishu/topic`, {
+        method: "POST",
+      }).then((result) => result.json());
+
+      assert.equal(response.task.feishuBinding?.chatId, "oc_chat_id");
+      assert.equal(response.task.feishuBinding?.threadKey, "om_root_new_topic");
+      assert.equal(response.task.feishuBinding?.rootMessageId, "om_root_new_topic");
+      assert.equal(response.task.desktopReplySyncToFeishu, true);
+
+      await waitFor(
+        () => requests.some((request) => request.url.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
+        "new Feishu root topic",
+      );
+      await waitFor(
+        () => requests.some((request) => request.url.includes("/open-apis/im/v1/messages/om_root_new_topic/reply")),
+        "task control card reply",
+      );
+
+      const rootMessage = requests.find((request) => request.url.includes("/open-apis/im/v1/messages?receive_id_type=chat_id"));
+      assert.match(parseFeishuText(rootMessage?.body), /Codex task linked from VSCode monitor/);
+      assert.match(parseFeishuText(rootMessage?.body), /Task ID: /);
+    } finally {
+      global.fetch = originalFetch;
+      server.closeAllConnections?.();
+      server.closeIdleConnections?.();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+      feishu.dispose();
       await service.dispose();
       await runtime.dispose();
     }
