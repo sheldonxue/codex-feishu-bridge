@@ -112,6 +112,14 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         case "refresh":
           await this.options.store.refresh();
           return;
+        case "import-recent-threads": {
+          const imported = await this.options.client.importRecentThreads(8);
+          await this.options.store.refresh();
+          if (imported[0]) {
+            await this.focusTask(imported[0].taskId);
+          }
+          return;
+        }
         case "open-status":
           await this.options.openStatus();
           return;
@@ -502,7 +510,7 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
 
       function taskRows() {
         if (!state.tasks.length) {
-          return '<div class="empty">No bridge tasks are available yet.</div>';
+          return '<div class="empty">No bridge tasks are available yet. Use <strong>Import Recent Host Threads</strong> to pull the latest host-side Codex sessions into the monitor.</div>';
         }
 
         return state.tasks
@@ -693,6 +701,10 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             <div class="metrics" style="margin-top: 12px;">
               <div class="metric"><strong>Account</strong><span>\${escapeHtml(accountSummary())}</span></div>
               <div class="metric"><strong>Rate limits</strong><span>\${escapeHtml(rateSummary())}</span></div>
+            </div>
+            <div class="actions" style="margin-top: 12px;">
+              <button data-action="import-recent-threads">Import Recent Host Threads</button>
+              <button data-action="refresh">Refresh</button>
             </div>
           </section>
           <section class="panel">

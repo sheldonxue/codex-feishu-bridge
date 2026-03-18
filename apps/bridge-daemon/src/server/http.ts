@@ -153,6 +153,13 @@ export function createBridgeHttpServer(options: BridgeHttpServerOptions): http.S
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/tasks/import/recent") {
+        const body = await readJsonBody<{ limit?: number }>(request);
+        const tasks = await service.importRecentRuntimeThreads(body.limit);
+        sendJson(response, 200, { tasks });
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/feishu/webhook") {
         if (!feishu?.webhookEnabled) {
           sendJson(response, 503, { error: "feishu webhook is not configured" });

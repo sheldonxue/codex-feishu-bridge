@@ -206,6 +206,23 @@ function shouldAutoImportRuntimeThread(status: TaskStatus): boolean {
   return status === "queued" || status === "running" || status === "awaiting-approval" || status === "blocked";
 }
 
+function runtimeStatusType(status: unknown): string {
+  if (typeof status === "string") {
+    return status;
+  }
+
+  if (status && typeof status === "object" && "type" in status) {
+    const value = (status as { type?: unknown }).type;
+    return typeof value === "string" ? value : "";
+  }
+
+  return "";
+}
+
+function isNotLoadedRuntimeThread(status: unknown): boolean {
+  return runtimeStatusType(status) === "notLoaded";
+}
+
 function approvalStateFromDecision(decision: CodexApprovalDecision): ApprovalState {
   switch (decision) {
     case "accept":
@@ -454,6 +471,39 @@ export class BridgeService {
     }
 
     return this.listTasks();
+  }
+
+  async importRecentRuntimeThreads(limit = 5): Promise<BridgeTask[]> {
+    const normalizedLimit = Math.max(1, Math.min(50, Math.trunc(limit || 0) || 5));
+    const runtimeThreads = await this.options.runtime.listThreads();
+    const imported: BridgeTask[] = [];
+
+    const candidates = runtimeThreads
+      .filter((descriptor) => !this.tasks.has(descriptor.id))
+      .filter((descriptor) => isNotLoadedRuntimeThread(descriptor.status))
+      .sort((left, right) => {
+        const leftTimestamp = left.updatedAt ?? left.createdAt ?? "";
+        const rightTimestamp = right.updatedAt ?? right.createdAt ?? "";
+        return rightTimestamp.localeCompare(leftTimestamp);
+      })
+      .slice(0, normalizedLimit);
+
+    for (const descriptor of candidates) {
+      const task = this.upsertTaskFromDescriptor(descriptor, "manual-import");
+      this.touchTask(task, descriptor.updatedAt ?? descriptor.createdAt ?? task.updatedAt);
+      imported.push(cloneTask(task));
+      this.emitEvent(task.taskId, "task.updated", {
+        task: cloneTask(task),
+        imported: true,
+        importedReason: "recent-host-thread",
+      });
+    }
+
+    if (imported.length > 0) {
+      await this.persistState();
+    }
+
+    return imported;
   }
 
   findTaskByFeishuBinding(chatId: string | undefined, lookupIds: string[]): BridgeTask | null {

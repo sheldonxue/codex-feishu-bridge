@@ -238,4 +238,57 @@ describe("bridge service runtime status mapping", () => {
     await service.dispose();
     await runtime.dispose();
   });
+
+  it("imports recent unseen host threads on explicit request", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-recent-import-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-old",
+        name: "Older host thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-17T00:05:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+      {
+        id: "thread-new",
+        name: "Newer host thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-17T00:25:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+      {
+        id: "thread-active",
+        name: "Already active",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-17T00:30:00.000Z",
+        status: {
+          type: "active",
+          activeFlags: [],
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    assert.equal(imported[0].taskId, "thread-new");
+    assert.equal(service.getTask("thread-old"), null);
+    assert.equal(service.getTask("thread-new")?.mode, "manual-import");
+    assert.equal(service.getTask("thread-active")?.status, "running");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
 });

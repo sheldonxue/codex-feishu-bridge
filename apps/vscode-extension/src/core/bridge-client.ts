@@ -164,6 +164,14 @@ export class BridgeClient {
     return result.tasks;
   }
 
+  async importRecentThreads(limit = 5): Promise<BridgeTask[]> {
+    const result = await this.requestJson<{ tasks: BridgeTask[] }>("/tasks/import/recent", {
+      method: "POST",
+      body: JSON.stringify({ limit }),
+    });
+    return result.tasks;
+  }
+
   async sendMessage(taskId: string, payload: TaskMessagePayload): Promise<BridgeTask> {
     const result = await this.requestJson<{ task: BridgeTask }>(`/tasks/${encodeURIComponent(taskId)}/messages`, {
       method: "POST",
