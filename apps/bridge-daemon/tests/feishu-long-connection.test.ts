@@ -674,6 +674,93 @@ describe("feishu long connection ingress", () => {
     }
   });
 
+  it("replies with new inspection snapshot cards for every More-menu query instead of patching the bound task card", async () => {
+    const harness = await createHarness();
+
+    try {
+      const task = await harness.service.createTask({
+        title: "Inspection card task",
+      });
+
+      await harness.feishu.bindTaskToNewTopic(task.taskId);
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task: ${task.title}`),
+          ),
+        "initial bound task card",
+      );
+
+      const taskCards = (
+        harness.feishu as unknown as { threadTaskCards: Map<string, { messageId: string }> }
+      ).threadTaskCards;
+      const currentCard = taskCards.get(`${task.feishuBinding?.chatId}:${task.feishuBinding?.threadKey}`);
+      assert.ok(currentCard?.messageId);
+
+      const queryCases = [
+        { option: "task", title: `Current Task Snapshot: ${task.title}` },
+        { option: "tasks", title: `All Tasks Snapshot: ${task.title}` },
+        { option: "health", title: `Bridge Health Snapshot: ${task.title}` },
+        { option: "account", title: `Account Snapshot: ${task.title}` },
+        { option: "limits", title: `Rate Limits Snapshot: ${task.title}` },
+      ] as const;
+
+      for (const queryCase of queryCases) {
+        const previousReplyCount = harness.requests.filter(
+          (request) =>
+            request.method === "POST" &&
+            request.url.includes("/open-apis/im/v1/messages/") &&
+            requestContainsCardTitle(request, queryCase.title),
+        ).length;
+        const previousPatchCount = harness.requests.filter(
+          (request) => request.method === "PATCH" && request.url.endsWith(`/open-apis/im/v1/messages/${currentCard?.messageId}`),
+        ).length;
+
+        const result = await harness.onCardAction({
+          open_message_id: currentCard?.messageId,
+          open_id: "ou_inspection_card",
+          action: {
+            tag: "overflow",
+            option: queryCase.option,
+            value: {
+              kind: "task.inspect.global",
+              chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
+              threadKey: task.feishuBinding?.threadKey ?? "omt_inspection_task",
+              rootMessageId: task.feishuBinding?.rootMessageId,
+              taskId: task.taskId,
+              revision: 1,
+            },
+          },
+        });
+
+        assert.equal(result, undefined);
+        await waitFor(
+          () =>
+            harness.requests.filter(
+              (request) =>
+                request.method === "POST" &&
+                request.url.includes("/open-apis/im/v1/messages/") &&
+                requestContainsCardTitle(request, queryCase.title),
+            ).length > previousReplyCount,
+          `${queryCase.option} inspection snapshot reply`,
+        );
+        assert.equal(
+          harness.requests.filter(
+            (request) => request.method === "PATCH" && request.url.endsWith(`/open-apis/im/v1/messages/${currentCard?.messageId}`),
+          ).length,
+          previousPatchCount,
+        );
+      }
+
+      assert.equal(taskCards.get(`${task.feishuBinding?.chatId}:${task.feishuBinding?.threadKey}`)?.messageId, currentCard?.messageId);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("supports slash bind, status, unbind, and approve commands without implicit root-thread creation", async () => {
     const harness = await createHarness();
     const originalRespondToRequest = harness.runtime.respondToRequest.bind(harness.runtime);

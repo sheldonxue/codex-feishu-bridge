@@ -18,6 +18,7 @@ import {
   createArchivedThreadCard,
   createCardTestCard,
   createDraftCard,
+  createTaskInspectionSnapshotCard,
   createTaskControlCard,
   createTaskStatusSnapshotCard,
   type FeishuCardActionValue,
@@ -1697,6 +1698,27 @@ export class FeishuBridge {
     await this.sendCardReply(targetMessageId, card);
   }
 
+  private async replyTaskInspectionSnapshotCard(params: {
+    task: BridgeTask;
+    binding: FeishuThreadBinding;
+    queryLabel: string;
+    note: string;
+    replyTargetId?: string;
+  }): Promise<void> {
+    const { task, binding, queryLabel, note, replyTargetId } = params;
+    const card = createTaskInspectionSnapshotCard({
+      task,
+      queryLabel,
+      note,
+    });
+    const targetMessageId =
+      replyTargetId ??
+      binding.rootMessageId ??
+      this.getThreadTaskCard(binding)?.messageId ??
+      binding.threadKey;
+    await this.sendCardReply(targetMessageId, card);
+  }
+
   private async buildTaskControlCard(
     task: BridgeTask,
     binding: FeishuThreadBinding,
@@ -2436,24 +2458,40 @@ export class FeishuBridge {
         }
       case "task.inspect.global": {
         const snapshot = this.options.service.getSnapshot();
+        let queryLabel = "Task Inspection";
         switch (action?.option) {
           case "tasks":
             note = formatTaskList(this.options.service.listTasks(), task.taskId);
+            queryLabel = "All Tasks";
             break;
           case "task":
             note = formatTaskSummary(task);
+            queryLabel = "Current Task";
             break;
           case "health":
             note = formatHealthSummary(this.options.config, snapshot, this.enabled);
+            queryLabel = "Bridge Health";
             break;
           case "account":
             note = formatAccountSummary(snapshot);
+            queryLabel = "Account";
             break;
           case "limits":
             note = formatRateLimitSummary(snapshot);
+            queryLabel = "Rate Limits";
             break;
           default:
             note = "Select one of Task, Tasks, Health, Account, or Limits.";
+        }
+        if (action?.option === "tasks" || action?.option === "task" || action?.option === "health" || action?.option === "account" || action?.option === "limits") {
+          await this.replyTaskInspectionSnapshotCard({
+            task,
+            binding,
+            queryLabel,
+            note,
+            replyTargetId: binding.rootMessageId ?? event?.open_message_id ?? currentCard?.messageId ?? binding.threadKey,
+          });
+          return;
         }
         break;
       }

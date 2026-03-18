@@ -7,6 +7,7 @@ import {
   createArchivedThreadCard,
   createDraftCard,
   createTaskControlCard,
+  createTaskInspectionSnapshotCard,
   createTaskStatusSnapshotCard,
 } from "../src/feishu/cards";
 
@@ -267,6 +268,32 @@ describe("feishu card builders", () => {
 
     const json = JSON.stringify(statusCard);
     assert.match(json, /Task Status Snapshot: Status snapshot task/);
+    assert.match(json, /Snapshot Details/);
+    assert.match(json, /Use the main task card for controls/);
+    assert.doesNotMatch(json, /Latest Update/);
+    assert.doesNotMatch(json, /View Status/);
+    assert.doesNotMatch(json, /Stop Turn/);
+  });
+
+  it("renders a read-only inspection snapshot card for More-menu queries", () => {
+    const task = createBridgeTask({
+      threadId: "thr-inspection-task",
+      title: "Inspection snapshot task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+    });
+    task.status = "idle";
+
+    const inspectionCard = createTaskInspectionSnapshotCard({
+      task,
+      queryLabel: "Bridge Health",
+      note: "status: ok\nfeishuEnabled: true",
+    });
+
+    const json = JSON.stringify(inspectionCard);
+    assert.match(json, /Bridge Health Snapshot: Inspection snapshot task/);
+    assert.match(json, /Snapshot Query/);
+    assert.match(json, /query: Bridge Health/);
     assert.match(json, /Snapshot Details/);
     assert.match(json, /Use the main task card for controls/);
     assert.doesNotMatch(json, /Latest Update/);

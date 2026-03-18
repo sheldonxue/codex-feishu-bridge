@@ -64,6 +64,12 @@ export interface FeishuTaskStatusSnapshotCardData {
   note?: string;
 }
 
+export interface FeishuTaskInspectionSnapshotCardData {
+  task: BridgeTask;
+  queryLabel: string;
+  note?: string;
+}
+
 export interface FeishuArchivedThreadCardData {
   binding: FeishuThreadBinding;
   taskId?: string;
@@ -683,6 +689,41 @@ export function createTaskStatusSnapshotCard(data: FeishuTaskStatusSnapshotCardD
           "**Use the main task card for controls**",
           "- retry, interrupt, approve, unbind, and archive still live on the bound task card",
           "- this snapshot card is a read-only reply so status checks do not overwrite the main card",
+        ].join("\n"),
+      ),
+    ],
+  };
+}
+
+export function createTaskInspectionSnapshotCard(data: FeishuTaskInspectionSnapshotCardData): FeishuInteractiveCard {
+  const note = truncateNote(data.note);
+  const { task, queryLabel } = data;
+
+  return {
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+    },
+    header: {
+      title: plainText(`${queryLabel} Snapshot: ${task.title}`),
+      template: "blue",
+    },
+    elements: [
+      markdown(
+        [
+          "**Snapshot Query**",
+          `query: ${queryLabel}`,
+          `taskId: ${task.taskId}`,
+          `status: ${task.status}`,
+        ].join("\n"),
+      ),
+      ...(note ? [divider(), markdown(`**Snapshot Details**\n${note}`)] : []),
+      divider(),
+      markdown(
+        [
+          "**Use the main task card for controls**",
+          "- this snapshot card is a read-only reply for inspection queries from the More menu",
+          "- the main task card remains the place for retry, interrupt, approvals, unbind, and archive",
         ].join("\n"),
       ),
     ],
