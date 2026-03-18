@@ -129,20 +129,58 @@ npm run build:extension
 ```
 
 然后在 VSCode 打开仓库，并运行 [`.vscode/launch.json`](./.vscode/launch.json) 中的 `Codex Feishu Bridge Extension`。
+这会启动一个新的 `Extension Development Host` 窗口；扩展当前默认在这个测试窗口里运行，而不是直接注入你正在编辑代码的主窗口。
 
 扩展现在定位为 **Feishu 对话任务的图形化监视器**。推荐桌面工作流是：
 
-1. 在飞书里发起或推进任务线程
-2. 在 VSCode 左侧 `Feishu Task List` 中观察全部任务，并优先关注已绑定飞书线程的任务
-3. 在 `Feishu Task Monitor` 常驻侧栏里查看：
+1. 启动 `bridge-runtime`，并确认：
+   - `curl http://127.0.0.1:8787/health`
+   - 返回 `backend=stdio` 或 `backend=mock`
+2. 在 VSCode 中按 `F5` 运行 `Codex Feishu Bridge Extension`
+3. 切到新打开的 `Extension Development Host`
+4. 在左侧 Explorer 中找到：
+   - `Feishu Task List`
+   - `Feishu Task Monitor`
+5. 先在监视器里点击：
+   - `Refresh`
+   - 如果你想把宿主机最近的 Codex 历史线程拉进监视器，再点击 `Import Recent Host Threads`
+6. 在飞书里发起或推进任务线程
+7. 在 `Feishu Task List` 中观察全部任务，并优先关注已绑定飞书线程的任务
+8. 在 `Feishu Task Monitor` 常驻侧栏里查看：
    - 任务状态、workspace、threadId、Feishu 绑定信息
    - 会话消息流与消息来源（`feishu` / `vscode` / `runtime`）
    - pending approvals
    - diff 摘要
-4. 直接在监视器底部的常驻输入框里发消息，不再依赖弹窗输入框
-5. 在监视器里处理中断、重试、审批、diff 打开和解绑
+9. 直接在监视器底部的常驻输入框里发消息，不再依赖弹窗输入框
+10. 在监视器里处理中断、重试、审批、diff 打开和解绑
 
 桌面端发起的消息默认不会被镜像成飞书里的用户原文；但对于已经绑定飞书线程的任务，你可以在监视器里切换“桌面回复继续同步回飞书”的任务级开关。
+
+### 监视器里会看到什么
+
+- `Feishu Task List`
+  - 展示当前 bridge 已知的全部任务
+  - 已绑定飞书线程的任务会有明显的 `Feishu` 标识
+- `Feishu Task Monitor`
+  - 这是主交互面
+  - 会显示当前选中任务的消息流、审批、diff、飞书绑定信息和桌面同步开关
+  - 底部有常驻输入框，适合桌面端持续接管任务
+
+### `Import Recent Host Threads` 是什么
+
+这个按钮的用途是把宿主机 `~/.codex` 中**最近的、尚未进入 bridge 的线程**显式拉进监视器。
+
+它的设计目标是：
+
+- 默认不把所有历史线程都灌进任务列表
+- 保持监视器聚焦于当前桥接任务和最近活动
+- 需要时再把最近的宿主机线程导入
+
+需要注意：
+
+- 它主要导入最近的 `notLoaded` 宿主机线程
+- 如果宿主机当前确实有正在运行的活跃线程，bridge 也会自动发现并显示
+- 如果你只看到了 VSCode/OpenAI 扩展自己的 `codex app-server` 进程，但监视器里还是空，通常意味着当前没有活跃线程，只有历史线程；这时就应使用 `Import Recent Host Threads`
 
 ## 飞书使用方式
 
