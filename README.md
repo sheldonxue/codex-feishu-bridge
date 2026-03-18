@@ -1,64 +1,78 @@
 # codex-feishu-bridge
 
-`codex-feishu-bridge` is a CLI-first bridge that connects Codex tasks to a desktop VSCode surface and a mobile Feishu surface.
-It is designed for developers who want to start, inspect, and control Codex work from multiple devices without making the editor plugin the runtime authority.
+`codex-feishu-bridge` 是一个以 CLI 为核心运行时的桥接项目，用来把 Codex 任务同时接到桌面端 VSCode 和移动端飞书上。
+它的核心目标是：**让 `codex app-server` 成为真实运行时，而不是把编辑器插件当作任务权威来源。**
 
-## Overview
+英文版说明保留在 [docs/README.en.md](./docs/README.en.md)。
 
-The repository is built around three product surfaces:
+## 项目概览
 
-- `Codex CLI + codex app-server` as the real task runtime and auth layer
-- `VSCode extension` as the desktop UI for task lists, diffs, approvals, and uploads
-- `Feishu` as the mobile conversation and control surface
+整个仓库围绕三个产品面展开：
 
-The OpenAI VSCode extension is not required as the runtime authority for this project.
+- `Codex CLI + codex app-server`：真实任务运行时与认证层
+- `VSCode extension`：桌面端任务列表、diff、审批、图片上传与状态视图
+- `Feishu`：移动端对话、控制与任务配置入口
 
-## Highlights
+当前推荐的移动端工作流是：
 
-- CLI-first runtime with `codex app-server`
-- Docker-first TypeScript development workflow
-- VSCode task tree, detail panel, diff view, approvals, and image upload
-- Feishu long-connection bridge with pure-thread conversations
-- Card-first Feishu task creation and control
-- Manual import and resume support for existing Codex threads
+- 在飞书线程里发送第一条普通文本
+- 由桥接器回复一张配置卡片
+- 在卡片里选择模型、reasoning effort、sandbox、approval policy
+- 点击 `Create Task`
+- 之后继续在同一线程里用普通文本和 agent 对话
 
-## Repository Layout
+## 核心特性
 
-- `apps/bridge-daemon`: runtime bridge, HTTP/WebSocket server, Feishu integration
-- `apps/vscode-extension`: desktop task UI and commands
-- `packages/protocol`: shared task, event, approval, and transport contracts
-- `packages/shared`: config and filesystem helpers
-- `docker/`: development image, compose file, bootstrap scripts
-- `docs/`: public product and architecture notes
+- 基于 `codex app-server` 的 CLI-first 运行时
+- Docker-first 的 TypeScript 开发方式
+- VSCode 任务树、详情面板、diff 查看、审批与图片上传
+- 飞书 long-connection 接入
+- 飞书 card-first 任务创建与控制
+- 已有 Codex 线程的导入与恢复能力
 
-## Public Docs
+## 仓库结构
 
-- [docs/prd.md](./docs/prd.md)
-- [docs/architecture.md](./docs/architecture.md)
+- `apps/bridge-daemon`：运行时桥、HTTP/WebSocket 服务、Feishu 集成
+- `apps/vscode-extension`：桌面端扩展
+- `packages/protocol`：共享任务、事件、审批与传输协议
+- `packages/shared`：共享配置与文件系统工具
+- `docker/`：开发镜像、compose 文件、启动脚本
+- `docs/`：公开产品文档与架构说明
 
-## Quick Start
+## 公开文档
 
-1. Copy `docker/.env.example` to `docker/.env` and fill the values you want to use.
-2. Start the development container:
+- [产品说明](./docs/prd.md)
+- [架构说明](./docs/architecture.md)
+- [English README](./docs/README.en.md)
+
+## 快速开始
+
+1. 复制环境文件：
+
+```bash
+cp docker/.env.example docker/.env
+```
+
+2. 启动开发容器：
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env.example up -d workspace-dev
 ```
 
-3. Enter the container and install dependencies:
+3. 进入容器并安装依赖：
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env.example exec workspace-dev bash
 npm install
 ```
 
-4. Start the bridge runtime:
+4. 启动 bridge runtime：
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env.example up -d bridge-runtime
 ```
 
-5. Build and test the main packages:
+5. 构建并运行主要测试：
 
 ```bash
 npm run build:daemon
@@ -67,11 +81,15 @@ npm run build:extension
 npm run test:extension
 ```
 
-For real `stdio` and Feishu runs, prefer calling `docker compose` directly with `--env-file docker/.env`.
+如果你要跑真实 `stdio` 与真实飞书，请优先直接使用：
 
-## Runtime and Validation
+```bash
+docker compose -f docker/compose.yaml --env-file docker/.env ...
+```
 
-To run against a real host Codex login and binary, provide these environment variables in `docker/.env`:
+## 真实 Runtime 与验证
+
+要复用宿主机上的 Codex 登录态和二进制，请在 `docker/.env` 中设置：
 
 ```bash
 HOST_CODEX_HOME=/home/you/.codex
@@ -81,7 +99,7 @@ CODEX_RUNTIME_BACKEND=stdio
 CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js
 ```
 
-Then start the runtime and verify the auth endpoints:
+然后启动 runtime 并检查认证接口：
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env up -d bridge-runtime
@@ -90,111 +108,108 @@ curl http://127.0.0.1:8787/auth/account
 curl http://127.0.0.1:8787/auth/rate-limits
 ```
 
-You can also run the runtime helper:
+你也可以运行运行时验证脚本：
 
 ```bash
 npm run validate:runtime
 ```
 
-Inside `workspace-dev`, use:
+在 `workspace-dev` 容器内可使用：
 
 ```bash
 BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 ```
 
-## VSCode Usage
+## VSCode 使用方式
 
-Build the extension:
+先构建扩展：
 
 ```bash
 npm run build:extension
 ```
 
-Then open the repository in VSCode and run the `Codex Feishu Bridge Extension` launch target from [`.vscode/launch.json`](./.vscode/launch.json).
+然后在 VSCode 打开仓库，并运行 [`.vscode/launch.json`](./.vscode/launch.json) 中的 `Codex Feishu Bridge Extension`。
 
-The extension provides:
+扩展当前提供：
 
-- task tree
-- task detail view
-- diff opening
-- status view
-- desktop approval handling
-- image upload
+- 任务树
+- 任务详情面板
+- diff 打开
+- 状态视图
+- 桌面端审批处理
+- 图片上传
 
-## Feishu Usage
+## 飞书使用方式
 
-The recommended mobile path is the official SDK long-connection client.
+推荐的移动端路径是官方 SDK 的 long-connection 客户端。
 
-Set:
+至少设置：
 
 - `FEISHU_APP_ID`
 - `FEISHU_APP_SECRET`
-- either `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME`
+- `FEISHU_DEFAULT_CHAT_ID` 或 `FEISHU_DEFAULT_CHAT_NAME`
 
-If only the group name is known, resolve visible chats with:
+如果你只知道群名，可以先解析可见群：
 
 ```bash
 node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --list
-node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --name "Your Feishu Group Name"
+node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --name "你的飞书群名"
 ```
 
-When `FEISHU_DEFAULT_CHAT_NAME` is present, `bridge-daemon` resolves the exact chat automatically at startup.
+如果设置了 `FEISHU_DEFAULT_CHAT_NAME`，`bridge-daemon` 会在启动时自动解析精确的 `chat_id`。
 
-### Feishu Console Setup
+### 从飞书后台提取配置
 
-Use this checklist to collect the values required by `docker/.env`.
+按下面的顺序取值，基本就能把 `docker/.env` 配齐：
 
-1. Create or open a self-built app in the Feishu Open Platform console.
-   Console entry:
+1. 打开飞书开放平台并创建或进入一个自建应用
+   控制台入口：
    `https://open.feishu.cn/app`
 
-2. Copy the application credentials.
-   In the app console, open the basic information page and copy:
+2. 复制应用凭证
+   在应用基础信息页中获取：
    - `App ID` -> `FEISHU_APP_ID`
    - `App Secret` -> `FEISHU_APP_SECRET`
 
-3. Enable the bot capability and add the bot to the target group.
-   The bridge can only receive group messages after the app bot has joined the chat you want to use.
+3. 开启机器人能力，并把机器人拉进目标群
+   如果机器人没进群，bridge 无法接收该群的消息。
 
-4. Enable long-connection event subscription.
-   In the event subscription section, choose the long-connection mode and enable at least:
+4. 开启长连接事件订阅
+   在事件订阅中选择 long-connection，并至少开启：
    - `im.message.receive_v1`
    - `card.action.trigger`
 
-5. Decide how to identify the default group.
-   Two supported options exist:
-   - recommended: set `FEISHU_DEFAULT_CHAT_NAME`
-   - fixed value: set `FEISHU_DEFAULT_CHAT_ID`
+5. 确定默认群的识别方式
+   支持两种：
+   - 推荐：`FEISHU_DEFAULT_CHAT_NAME`
+   - 固定值：`FEISHU_DEFAULT_CHAT_ID`
 
-   In practice, `chat_id` is usually easiest to resolve after the bot has already joined the group:
+   如果你想从后台配置完后再确定 `chat_id`，通常最方便的方式是先让机器人进群，然后运行：
 
    ```bash
    node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --list
-   node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --name "Your Feishu Group Name"
+   node --env-file=docker/.env --import tsx scripts/resolve-feishu-chat.ts --name "你的飞书群名"
    ```
 
-   The first command lists visible chats, and the second resolves the exact `chat_id` for one group name.
-
-6. Only configure webhook security values if you intentionally keep the compatibility path enabled.
-   For the recommended long-connection path, these are not required:
+6. 只有在你明确启用 webhook 兼容路径时，才需要额外配置：
    - `FEISHU_VERIFICATION_TOKEN`
    - `FEISHU_ENCRYPT_KEY`
 
-   If you want `/feishu/webhook` compatibility as well, copy them from the event and callback security section:
+   如果需要 `/feishu/webhook` 兼容入口，请到事件与回调安全配置中复制：
    - `Verification Token` -> `FEISHU_VERIFICATION_TOKEN`
    - `Encrypt Key` -> `FEISHU_ENCRYPT_KEY`
 
-### Minimal Feishu Environment Example
+### 最小环境示例
 
-Long-connection with automatic group-name resolution:
+按群名自动解析：
 
 ```env
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
-FEISHU_DEFAULT_CHAT_NAME=Your Feishu Group Name
+FEISHU_DEFAULT_CHAT_NAME=你的飞书群名
 ```
 
-Long-connection with a fixed group id:
+按固定群 ID：
 
 ```env
 FEISHU_APP_ID=cli_xxx
@@ -202,100 +217,60 @@ FEISHU_APP_SECRET=xxx
 FEISHU_DEFAULT_CHAT_ID=oc_xxx
 ```
 
-### Feishu Troubleshooting
+### 飞书排错清单
 
-If the bridge starts but nothing happens in the group, check these in order:
+如果 bridge 启动了，但群里没有任何反应，请依次检查：
 
-- the app bot has actually been added to the target group
-- the target group matches `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME`
-- long-connection event subscription is enabled
-- `im.message.receive_v1` is enabled
-- `card.action.trigger` is enabled if you want card-first interaction
-- the bridge is reading the intended values from `docker/.env`
+- 机器人是否真的已经加入目标群
+- 目标群是否和 `FEISHU_DEFAULT_CHAT_ID` 或 `FEISHU_DEFAULT_CHAT_NAME` 一致
+- long-connection 事件订阅是否已开启
+- `im.message.receive_v1` 是否已开启
+- card-first 交互需要的 `card.action.trigger` 是否已开启
+- bridge 是否真的在读取 `docker/.env` 中的目标值
 
-The current Feishu workflow is:
+### 当前飞书工作流
 
-1. Start a new Feishu topic or thread.
-2. Send the first plain-text message describing the task.
-3. Let `bridge-daemon` create or refresh a draft and reply with a configuration card.
-4. Use the card to choose model, reasoning effort, sandbox, and approval policy.
-5. Press `Create Task`.
-6. Continue the task with plain text in the same thread.
-7. Use the control card for status, interrupt, retry, approvals, inspect, and unbind actions.
+当前推荐的飞书端使用方式是：
 
-The mobile thread stays clean:
+1. 新开一个飞书话题或线程
+2. 发第一条普通文本，描述你要做的事情
+3. 让 `bridge-daemon` 回复一张配置卡片
+4. 在卡片里选择模型、reasoning effort、sandbox、approval policy
+5. 点击 `Create Task`
+6. 在同一线程里继续用普通文本对话
+7. 用控制卡处理状态、interrupt、retry、审批、解绑等动作
 
-- configuration cards
-- control cards
-- final agent replies
-- approvals
-- explicit errors
-- necessary command results
+移动端线程会尽量保持纯净，只保留：
 
-Slash commands remain available as compatibility fallbacks, but card interaction is the recommended flow.
+- 配置卡片
+- 控制卡片
+- agent 最终回复
+- 审批消息
+- 明确错误
+- 必要命令结果
 
-## Runtime Notes
+slash 命令仍然保留为兼容兜底，但不再是推荐主路径。
 
-- `bridge-daemon` is the local bridge orchestrator.
-- `codex app-server` is managed by the daemon and provides the thread runtime.
-- VSCode connects to the daemon over localhost HTTP and WebSocket.
-- The selected Feishu live path now uses the official SDK long-connection client instead of a public callback URL.
-- `/feishu/webhook` remains available as a compatibility ingress when webhook credentials are still configured.
-- The daemon now exposes `/tasks`, `/tasks/import`, `/tasks/:id/resume`, `/tasks/:id/messages`, `/tasks/:id/uploads`, `/tasks/:id/approvals/*`, and `/feishu/webhook`.
-- The daemon persists task state under `.tmp/` and reconciles recovered tasks on restart.
-- Live runtime validation should prefer `CODEX_RUNTIME_BACKEND=stdio` so the daemon manages the real `codex app-server` process directly.
-- Reusing a host login state in Docker uses `HOST_CODEX_HOME -> /codex-home`.
-- Reusing a host Codex executable in Docker uses `HOST_CODEX_BIN_DIR -> /opt/host-codex-bin`.
-- `npm run validate:runtime` is read-only by default.
-- `npm run validate:runtime -- --create-thread` creates and resumes a real thread without sending a prompt.
+## 运行说明
 
-## Feishu Notes
+- `bridge-daemon` 是本地桥接编排器
+- `codex app-server` 由 daemon 托管，负责真实线程运行
+- VSCode 通过 localhost HTTP/WebSocket 与 daemon 通信
+- 当前推荐的飞书 live path 是官方 SDK long-connection，而不是公网回调 URL
+- `/feishu/webhook` 仍可作为兼容入口保留
+- daemon 会暴露 `/tasks`、`/tasks/import`、`/tasks/:id/resume`、`/tasks/:id/messages`、`/tasks/:id/uploads`、`/tasks/:id/approvals/*` 和 `/feishu/webhook`
+- daemon 会把任务状态持久化到 `.tmp/`，并在重启时做恢复对账
+- 真实联调建议使用 `CODEX_RUNTIME_BACKEND=stdio`
+- 在 Docker 中复用宿主机登录态依赖 `HOST_CODEX_HOME -> /codex-home`
+- 在 Docker 中复用宿主机 Codex 可执行入口依赖 `HOST_CODEX_BIN_DIR -> /opt/host-codex-bin`
+- `npm run validate:runtime` 默认是只读检查
+- `npm run validate:runtime -- --create-thread` 会创建并恢复真实线程，但不发送 prompt
 
-- Set `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and either `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME` in `docker/.env` for the long-connection path.
-- `bridge-daemon` starts the official SDK long-connection client automatically when those three values are present.
-- `FEISHU_VERIFICATION_TOKEN` and `FEISHU_ENCRYPT_KEY` are only required for the webhook compatibility path.
-- Local task creation no longer auto-creates Feishu root messages, and Feishu no longer receives background task status summaries.
-- Unbound plain text in a Feishu thread now creates or refreshes a thread-scoped draft and replies with a configuration card.
-- The configuration card is the primary mobile UX. It lets you:
-  - review the current draft prompt
-  - choose model, reasoning effort, sandbox, and approval policy
-  - reset to defaults
-  - create or cancel the draft task
-- After task creation, the configuration card is replaced by a task control card for:
-  - status
-  - interrupt
-  - retry
-  - approvals
-  - unbind
-  - task, tasks, health, account, and limits inspection
-- Bound threads accept plain text as task input.
-- Card actions and text messages both travel through the official SDK long-connection client. Enable the relevant card action event subscription in the Feishu developer console.
-- Slash commands remain available as a compatibility fallback:
-  - `/new`
-  - `/new prompt <text>`
-  - `/new models`
-  - `/new model <model-id>`
-  - `/new effort <none|minimal|low|medium|high|xhigh>`
-  - `/new sandbox <read-only|workspace-write|danger-full-access>`
-  - `/new approval <untrusted|on-failure|on-request|never>`
-  - `/new create`
-  - `/new cancel`
-  - `/status`
-  - `/interrupt`
-  - `/retry [text]`
-  - `/approve [requestId]`
-  - `/decline [requestId]`
-  - `/cancel [requestId]`
-  - `/bind <taskId>`
-  - `/unbind`
-- Automatic system output is kept intentionally sparse: configuration cards, control cards, final agent replies, approval messages, explicit errors, and necessary command results.
+## 仓库地图
 
-## Repository Map
-
-- `apps/vscode-extension`: desktop frontend for tasks, approvals, diffs, and image inputs
-- `apps/bridge-daemon`: daemon runtime that owns Codex sessions and Feishu routing
-- `packages/protocol`: shared bridge task, event, approval, and transport contracts
-- `packages/shared`: shared config, filesystem, and transport helpers
-- `docker/`: compose, images, and environment templates
-- `docs/`: agent-facing product, architecture, status, plan, and decision records
-- `.agent/`: future agent templates and checkpoints
+- `apps/vscode-extension`：桌面端任务、审批、diff、图片输入
+- `apps/bridge-daemon`：daemon 运行时与 Feishu 路由
+- `packages/protocol`：共享任务、事件、审批与传输协议
+- `packages/shared`：共享配置、文件系统与传输工具
+- `docker/`：compose、镜像与环境模板
+- `docs/`：产品、架构与补充文档
