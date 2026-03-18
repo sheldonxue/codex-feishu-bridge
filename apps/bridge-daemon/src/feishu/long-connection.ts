@@ -2,7 +2,9 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { Logger } from "@codex-feishu-bridge/shared";
 
+import type { FeishuInteractiveCard } from "./cards";
 import type {
+  FeishuCardActionEvent,
   FeishuIncomingMessage,
   FeishuIncomingSender,
   LongConnectionFactory,
@@ -17,7 +19,7 @@ interface LarkLogger {
 }
 
 interface LarkEventDispatcherLike {
-  register(handles: Record<string, (data: any) => Promise<void> | void>): unknown;
+  register(handles: Record<string, (data: any) => Promise<unknown> | unknown>): unknown;
 }
 
 interface LarkEventDispatcherConstructor {
@@ -122,10 +124,26 @@ function summarizeIncomingPayload(
   };
 }
 
+function summarizeCardActionPayload(
+  event: FeishuCardActionEvent | undefined,
+): Record<string, string | undefined> {
+  return {
+    openId: event?.open_id,
+    userId: event?.user_id,
+    tenantKey: event?.tenant_key,
+    openMessageId: event?.open_message_id,
+    actionTag: event?.action?.tag,
+    actionOption: event?.action?.option,
+    actionKind: event?.action?.value?.kind,
+    threadKey: event?.action?.value?.threadKey,
+    taskId: event?.action?.value?.taskId,
+  };
+}
+
 export function createFeishuLongConnectionFactory(
   sdk: LarkSdkLike = Lark as unknown as LarkSdkLike,
 ): LongConnectionFactory {
-  return async ({ config, logger, onMessage }) => {
+  return async ({ config, logger, onMessage, onCardAction }) => {
     const sdkLogger = createSdkLogger(logger);
     const wsClient = new sdk.WSClient({
       appId: config.feishuAppId!,
@@ -147,6 +165,10 @@ export function createFeishuLongConnectionFactory(
         const payload = extractMessagePayload(data);
         logger.info("received feishu long-connection event", summarizeIncomingPayload(payload.message, payload.sender));
         await onMessage(payload.message, payload.sender);
+      },
+      "card.action.trigger": async (data: FeishuCardActionEvent): Promise<FeishuInteractiveCard | void> => {
+        logger.info("received feishu long-connection card action", summarizeCardActionPayload(data));
+        return onCardAction(data);
       },
     });
 

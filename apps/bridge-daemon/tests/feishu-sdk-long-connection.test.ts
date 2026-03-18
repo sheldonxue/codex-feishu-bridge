@@ -7,7 +7,7 @@ import { createFeishuLongConnectionFactory } from "../src/feishu/long-connection
 import { TEST_REPO_ROOT } from "./test-paths";
 
 describe("feishu sdk long connection factory", () => {
-  it("builds the official sdk client, registers im.message.receive_v1, and closes cleanly", async () => {
+  it("builds the official sdk client, registers message and card-action handlers, and closes cleanly", async () => {
     const clients: FakeWsClient[] = [];
     const dispatchers: FakeEventDispatcher[] = [];
 
@@ -42,6 +42,7 @@ describe("feishu sdk long connection factory", () => {
     }
 
     const received: Array<{ message?: unknown; sender?: unknown }> = [];
+    const cardActions: Array<unknown> = [];
     const factory = createFeishuLongConnectionFactory({
       AppType: {
         SelfBuild: "self-build",
@@ -70,6 +71,17 @@ describe("feishu sdk long connection factory", () => {
       onMessage: async (message, sender) => {
         received.push({ message, sender });
       },
+      onCardAction: async (event) => {
+        cardActions.push(event);
+        return {
+          header: {
+            title: {
+              tag: "plain_text",
+              content: "Updated",
+            },
+          },
+        };
+      },
     });
 
     assert.equal(clients.length, 1);
@@ -82,6 +94,7 @@ describe("feishu sdk long connection factory", () => {
     assert.equal(typeof clients[0]?.options.logger, "object");
     assert.equal(dispatchers[0]?.options.loggerLevel, "info");
     assert.equal(typeof dispatchers[0]?.handles["im.message.receive_v1"], "function");
+    assert.equal(typeof dispatchers[0]?.handles["card.action.trigger"], "function");
     assert.equal(clients[0]?.startCalls.length, 1);
     assert.equal(clients[0]?.startCalls[0]?.eventDispatcher, dispatchers[0]);
 
@@ -109,6 +122,41 @@ describe("feishu sdk long connection factory", () => {
         },
       },
     ]);
+
+    const cardResult = await dispatchers[0]?.handles["card.action.trigger"]({
+      open_message_id: "om_card",
+      action: {
+        tag: "button",
+        option: "ping",
+        value: {
+          kind: "test.ping",
+          chatId: "oc_chat_id",
+          threadKey: "omt_card",
+        },
+      },
+    });
+    assert.deepEqual(cardActions, [
+      {
+        open_message_id: "om_card",
+        action: {
+          tag: "button",
+          option: "ping",
+          value: {
+            kind: "test.ping",
+            chatId: "oc_chat_id",
+            threadKey: "omt_card",
+          },
+        },
+      },
+    ]);
+    assert.deepEqual(cardResult, {
+      header: {
+        title: {
+          tag: "plain_text",
+          content: "Updated",
+        },
+      },
+    });
 
     await handle.stop();
     assert.deepEqual(clients[0]?.closeCalls, [{ force: true }]);

@@ -23,6 +23,7 @@ interface LongConnectionHarness {
   service: BridgeService;
   cleanup: () => Promise<void>;
   onMessage: (message?: unknown, sender?: unknown) => Promise<void>;
+  onCardAction: (event?: unknown) => Promise<unknown>;
 }
 
 function parseMessageText(request: RequestRecord): string {
@@ -36,6 +37,34 @@ function parseMessageText(request: RequestRecord): string {
   } catch {
     return "";
   }
+}
+
+function parseInteractiveCard(request: RequestRecord): Record<string, unknown> | null {
+  const payload = JSON.parse(request.body ?? "{}") as { content?: string; msg_type?: string };
+  if (payload.msg_type !== "interactive" || !payload.content) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(payload.content) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function requestContainsCardTitle(request: RequestRecord, title: string): boolean {
+  const card = parseInteractiveCard(request);
+  const header = card?.header as { title?: { content?: string } } | undefined;
+  return header?.title?.content === title;
+}
+
+function requestContainsCardText(request: RequestRecord, needle: string): boolean {
+  const card = parseInteractiveCard(request);
+  if (!card) {
+    return false;
+  }
+
+  return JSON.stringify(card).includes(needle);
 }
 
 async function waitFor(check: () => boolean, message: string): Promise<void> {
@@ -107,10 +136,13 @@ async function createHarness(envOverrides: Record<string, string> = {}): Promise
   }) as typeof fetch;
 
   let onMessage: ((message?: unknown, sender?: unknown) => Promise<void>) | null = null;
+  let onCardAction: ((event?: unknown) => Promise<unknown>) | null = null;
   const longConnectionFactory = async (params: {
     onMessage: (message?: unknown, sender?: unknown) => Promise<void>;
+    onCardAction: (event?: unknown) => Promise<unknown>;
   }) => {
     onMessage = params.onMessage;
+    onCardAction = params.onCardAction;
     return {
       stop: async () => {},
     };
@@ -135,6 +167,10 @@ async function createHarness(envOverrides: Record<string, string> = {}): Promise
         assert.ok(onMessage, "long connection handler should be registered");
         await onMessage?.(message, sender);
       },
+      onCardAction: async (event?: unknown) => {
+        assert.ok(onCardAction, "long connection card handler should be registered");
+        return onCardAction?.(event);
+      },
       cleanup: async () => {
         feishu.dispose();
         await service.dispose();
@@ -149,7 +185,7 @@ async function createHarness(envOverrides: Record<string, string> = {}): Promise
 }
 
 describe("feishu long connection ingress", () => {
-  it("keeps unbound threads quiet and creates a bound task through the /new wizard", async () => {
+  it("turns the first unbound plain-text message into a draft card and creates a bound task from card actions", async () => {
     const harness = await createHarness();
 
     try {
@@ -169,82 +205,64 @@ describe("feishu long connection ingress", () => {
         },
       );
 
-      await delay(50);
       assert.equal(harness.service.listTasks().length, 0);
+      await waitFor(
+        () => harness.requests.some((request) => requestContainsCardTitle(request, "Create Codex Task")),
+        "draft card reply",
+      );
       assert.equal(
-        harness.requests.some((request) => request.url.includes("/open-apis/im/v1/messages/")),
+        harness.requests.some((request) => parseMessageText(request).includes("Current /new draft")),
+        false,
+      );
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("Mock response for: hello before binding")),
         false,
       );
 
-      await harness.onMessage(
-        {
-          message_id: "om_new",
-          thread_id: "omt_new_task",
-          root_id: "om_root_new_task",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_new",
+      const firstCard = await harness.onCardAction({
+        open_message_id: "om_card_new_task",
+        open_id: "ou_plain",
+        action: {
+          tag: "select_static",
+          option: "gpt-5.4-mini",
+          value: {
+            kind: "draft.select.model",
+            chatId: "oc_chat_id",
+            threadKey: "omt_new_task",
+            rootMessageId: "om_root_new_task",
           },
         },
-      );
-      await waitFor(
-        () => harness.requests.some((request) => parseMessageText(request).includes("Current /new draft")),
-        "/new draft response",
-      );
+      });
+      assert.ok(firstCard);
+      assert.match(JSON.stringify(firstCard), /gpt-5\.4-mini/);
 
-      await harness.onMessage(
-        {
-          message_id: "om_new_prompt",
-          thread_id: "omt_new_task",
-          root_id: "om_root_new_task",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new prompt hello from feishu" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_new",
+      const createdCard = await harness.onCardAction({
+        open_message_id: "om_card_new_task",
+        open_id: "ou_plain",
+        action: {
+          tag: "button",
+          value: {
+            kind: "draft.create",
+            chatId: "oc_chat_id",
+            threadKey: "omt_new_task",
+            rootMessageId: "om_root_new_task",
           },
         },
-      );
-
-      await harness.onMessage(
-        {
-          message_id: "om_new_create",
-          thread_id: "omt_new_task",
-          root_id: "om_root_new_task",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new create" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_new",
-          },
-        },
-      );
+      });
 
       await waitFor(() => harness.service.listTasks().length === 1, "task creation");
       const createdTask = harness.service.listTasks()[0];
       assert.ok(createdTask);
       assert.equal(createdTask?.feishuBinding?.threadKey, "omt_new_task");
-      assert.equal(createdTask?.executionProfile.sandbox, "workspace-write");
-      assert.equal(createdTask?.executionProfile.approvalPolicy, "on-request");
+      assert.equal(createdTask?.executionProfile.model, "gpt-5.4-mini");
       assert.equal(
         harness.calls.some((entry) => entry.includes("/open-apis/im/v1/messages?receive_id_type=chat_id")),
         false,
       );
+      assert.match(JSON.stringify(createdCard), /Task: hello before binding/);
 
       await waitFor(
-        () => harness.requests.some((request) => parseMessageText(request).includes("Created task")),
-        "task creation reply",
-      );
-      await waitFor(
-        () => harness.requests.some((request) => parseMessageText(request).includes("Mock response for: hello from feishu")),
+        () => harness.requests.some((request) => parseMessageText(request).includes("Mock response for: hello before binding")),
         "first final agent reply",
       );
 
@@ -278,7 +296,7 @@ describe("feishu long connection ingress", () => {
     }
   });
 
-  it("lists models and falls back to the model default effort when the current one is unsupported", async () => {
+  it("updates the draft card through long-connection card actions and falls back to the model default effort", async () => {
     const harness = await createHarness();
 
     try {
@@ -297,87 +315,68 @@ describe("feishu long connection ingress", () => {
           },
         },
       );
-
-      await harness.onMessage(
-        {
-          message_id: "om_models_list",
-          thread_id: "omt_models",
-          root_id: "om_root_models",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new models" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_models",
-          },
-        },
-      );
       await waitFor(
-        () => harness.requests.some((request) => parseMessageText(request).includes("Available models:")),
-        "model list reply",
+        () => harness.requests.some((request) => requestContainsCardTitle(request, "Create Codex Task")),
+        "initial draft card",
       );
 
-      await harness.onMessage(
-        {
-          message_id: "om_effort_xhigh",
-          thread_id: "omt_models",
-          root_id: "om_root_models",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new effort xhigh" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_models",
+      const effortCard = await harness.onCardAction({
+        open_message_id: "om_card_models",
+        open_id: "ou_models",
+        action: {
+          tag: "select_static",
+          option: "xhigh",
+          value: {
+            kind: "draft.select.effort",
+            chatId: "oc_chat_id",
+            threadKey: "omt_models",
+            rootMessageId: "om_root_models",
           },
         },
-      );
+      });
+      assert.ok(effortCard);
+      assert.match(JSON.stringify(effortCard), /Selected effort xhigh\./);
 
-      await harness.onMessage(
-        {
-          message_id: "om_model_mini",
-          thread_id: "omt_models",
-          root_id: "om_root_models",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new model gpt-5.4-mini" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_models",
+      const fallbackCard = await harness.onCardAction({
+        open_message_id: "om_card_models",
+        open_id: "ou_models",
+        action: {
+          tag: "select_static",
+          option: "gpt-5.4-mini",
+          value: {
+            kind: "draft.select.model",
+            chatId: "oc_chat_id",
+            threadKey: "omt_models",
+            rootMessageId: "om_root_models",
           },
         },
+      });
+      assert.ok(fallbackCard);
+      assert.match(JSON.stringify(fallbackCard), /Selected model gpt-5\.4-mini; effort reverted to low\./);
+      assert.equal(
+        harness.requests.some((request) => parseMessageText(request).includes("Available models:")),
+        false,
       );
 
-      await waitFor(
-        () =>
-          harness.requests.some((request) =>
-            parseMessageText(request).includes("effort reverted to low because gpt-5.4-mini does not support the previous value."),
-          ),
-        "effort fallback reply",
-      );
-
-      await harness.onMessage(
-        {
-          message_id: "om_create_mini",
-          thread_id: "omt_models",
-          root_id: "om_root_models",
-          chat_id: "oc_chat_id",
-          message_type: "text",
-          content: JSON.stringify({ text: "/new create" }),
-        },
-        {
-          sender_id: {
-            open_id: "ou_models",
+      const createCard = await harness.onCardAction({
+        open_message_id: "om_card_models",
+        open_id: "ou_models",
+        action: {
+          tag: "button",
+          value: {
+            kind: "draft.create",
+            chatId: "oc_chat_id",
+            threadKey: "omt_models",
+            rootMessageId: "om_root_models",
           },
         },
-      );
+      });
 
       await waitFor(() => harness.service.listTasks().length === 1, "task creation from model draft");
       const task = harness.service.listTasks()[0];
       assert.equal(task?.executionProfile.model, "gpt-5.4-mini");
       assert.equal(task?.executionProfile.effort, "low");
+      assert.match(JSON.stringify(createCard), /Created task/);
     } finally {
       await harness.cleanup();
     }
