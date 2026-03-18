@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
-import { DatabaseSync } from "node:sqlite";
 
 import {
   createBridgeEvent,
@@ -1424,68 +1424,87 @@ export class BridgeService {
   }
 
   private async deleteCodexThreadArtifacts(threadId: string): Promise<void> {
-    const rolloutPath = this.deleteThreadFromStateDatabase(threadId);
-    this.deleteThreadFromLogsDatabase(threadId);
+    const stateDbPath = path.join(this.options.config.codexHome, "state_5.sqlite");
+    const logsDbPath = path.join(this.options.config.codexHome, "logs_1.sqlite");
+    const rolloutPath = await this.deleteThreadFromStateDatabase(stateDbPath, threadId);
+    await this.deleteThreadFromLogsDatabase(logsDbPath, threadId);
     if (rolloutPath) {
       await rm(rolloutPath, { force: true });
     }
   }
 
-  private deleteThreadFromStateDatabase(threadId: string): string | null {
-    const stateDbPath = path.join(this.options.config.codexHome, "state_5.sqlite");
+  private async deleteThreadFromStateDatabase(stateDbPath: string, threadId: string): Promise<string | null> {
     if (!existsSync(stateDbPath)) {
       return null;
     }
-    const database = new DatabaseSync(stateDbPath);
-    let rolloutPath: string | null = null;
+    const rolloutPath = await this.runPythonSqliteScript(
+      `
+import os
+import sqlite3
 
-    try {
-      database.exec("PRAGMA foreign_keys = ON");
-      rolloutPath = this.readThreadRolloutPath(database, threadId);
+db_path = os.environ["BRIDGE_SQLITE_DB_PATH"]
+thread_id = os.environ["BRIDGE_SQLITE_THREAD_ID"]
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
 
-      if (this.sqliteTableExists(database, "agent_job_items") && this.sqliteColumnExists(database, "agent_job_items", "assigned_thread_id")) {
-        database.prepare("UPDATE agent_job_items SET assigned_thread_id = NULL WHERE assigned_thread_id = ?").run(threadId);
-      }
+def table_exists(name):
+    return cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
-      for (const table of ["logs", "stage1_outputs", "thread_dynamic_tools"]) {
-        if (this.sqliteTableExists(database, table) && this.sqliteColumnExists(database, table, "thread_id")) {
-          database.prepare(`DELETE FROM ${table} WHERE thread_id = ?`).run(threadId);
-        }
-      }
+def column_exists(table, column):
+    return any(row[1] == column for row in cur.execute(f"PRAGMA table_info({table})"))
 
-      if (this.sqliteTableExists(database, "threads")) {
-        database.prepare("DELETE FROM threads WHERE id = ?").run(threadId);
-      }
-    } finally {
-      database.close();
-    }
+rollout_path = None
 
-    return this.resolveCodexArtifactPath(rolloutPath);
+if table_exists("threads"):
+    row = cur.execute("SELECT rollout_path FROM threads WHERE id = ?", (thread_id,)).fetchone()
+    if row and row[0]:
+        rollout_path = row[0]
+
+if table_exists("agent_job_items") and column_exists("agent_job_items", "assigned_thread_id"):
+    cur.execute("UPDATE agent_job_items SET assigned_thread_id = NULL WHERE assigned_thread_id = ?", (thread_id,))
+
+for table in ("logs", "stage1_outputs", "thread_dynamic_tools"):
+    if table_exists(table) and column_exists(table, "thread_id"):
+        cur.execute(f"DELETE FROM {table} WHERE thread_id = ?", (thread_id,))
+
+if table_exists("threads"):
+    cur.execute("DELETE FROM threads WHERE id = ?", (thread_id,))
+
+conn.commit()
+conn.close()
+print(rollout_path or "")
+      `,
+      stateDbPath,
+      threadId,
+    );
+
+    return this.resolveCodexArtifactPath(rolloutPath.trim() || null);
   }
 
-  private deleteThreadFromLogsDatabase(threadId: string): void {
-    const logsDbPath = path.join(this.options.config.codexHome, "logs_1.sqlite");
+  private async deleteThreadFromLogsDatabase(logsDbPath: string, threadId: string): Promise<void> {
     if (!existsSync(logsDbPath)) {
       return;
     }
-    const database = new DatabaseSync(logsDbPath);
+    await this.runPythonSqliteScript(
+      `
+import os
+import sqlite3
 
-    try {
-      if (this.sqliteTableExists(database, "logs") && this.sqliteColumnExists(database, "logs", "thread_id")) {
-        database.prepare("DELETE FROM logs WHERE thread_id = ?").run(threadId);
-      }
-    } finally {
-      database.close();
-    }
-  }
-
-  private readThreadRolloutPath(database: DatabaseSync, threadId: string): string | null {
-    if (!this.sqliteTableExists(database, "threads")) {
-      return null;
-    }
-
-    const row = database.prepare("SELECT rollout_path FROM threads WHERE id = ?").get(threadId) as { rollout_path?: unknown } | undefined;
-    return typeof row?.rollout_path === "string" && row.rollout_path.trim() ? row.rollout_path : null;
+db_path = os.environ["BRIDGE_SQLITE_DB_PATH"]
+thread_id = os.environ["BRIDGE_SQLITE_THREAD_ID"]
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
+table = cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='logs'").fetchone()
+if table is not None:
+    columns = [row[1] for row in cur.execute("PRAGMA table_info(logs)")]
+    if "thread_id" in columns:
+        cur.execute("DELETE FROM logs WHERE thread_id = ?", (thread_id,))
+conn.commit()
+conn.close()
+      `,
+      logsDbPath,
+      threadId,
+    );
   }
 
   private resolveCodexArtifactPath(targetPath: string | null): string | null {
@@ -1506,16 +1525,27 @@ export class BridgeService {
     return path.join(codexHomeRoot, targetPath);
   }
 
-  private sqliteTableExists(database: DatabaseSync, tableName: string): boolean {
-    const row = database
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
-      .get(tableName) as Record<string, unknown> | undefined;
-    return Boolean(row);
-  }
-
-  private sqliteColumnExists(database: DatabaseSync, tableName: string, columnName: string): boolean {
-    const rows = database.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: unknown }>;
-    return rows.some((row) => row.name === columnName);
+  private runPythonSqliteScript(script: string, dbPath: string, threadId: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(
+        "python3",
+        ["-c", script],
+        {
+          env: {
+            ...process.env,
+            BRIDGE_SQLITE_DB_PATH: dbPath,
+            BRIDGE_SQLITE_THREAD_ID: threadId,
+          },
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(stderr.trim() || error.message));
+            return;
+          }
+          resolve(stdout);
+        },
+      );
+    });
   }
 
   private async persistState(): Promise<void> {
