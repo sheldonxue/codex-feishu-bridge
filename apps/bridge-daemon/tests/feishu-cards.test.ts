@@ -91,6 +91,8 @@ describe("feishu card builders", () => {
       mode: "bridge-managed",
     });
     task.status = "awaiting-approval";
+    task.feishuRunningMessageMode = "queue";
+    task.queuedMessageCount = 2;
     task.conversation = [
       {
         messageId: "msg-1",
@@ -139,6 +141,7 @@ describe("feishu card builders", () => {
 
     assert.match(taskJson, /How this thread works/);
     assert.match(taskJson, /Plan Mode: Off/);
+    assert.match(taskJson, /While Running: Queue Next Turn/);
     assert.match(taskJson, /Run Controls/);
     assert.match(taskJson, /Thread Controls/);
     assert.match(taskJson, /View Status/);
@@ -150,6 +153,8 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Cancel Approval/);
     assert.match(taskJson, /Bridge Health/);
     assert.match(taskJson, /Rate Limits/);
+    assert.match(taskJson, /feishu while running: queue next turn/);
+    assert.match(taskJson, /queued next-turn messages: 2/);
   });
 
   it("explains the next step when a host task exists but the first turn has not started yet", () => {

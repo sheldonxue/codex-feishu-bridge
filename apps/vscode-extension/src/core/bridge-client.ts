@@ -1,4 +1,12 @@
-import type { BridgeTask, MessageSurface, QueuedApproval, ReasoningEffort, TaskAssetKind, TaskExecutionProfile } from "@codex-feishu-bridge/protocol";
+import type {
+  BridgeTask,
+  FeishuRunningMessageMode,
+  MessageSurface,
+  QueuedApproval,
+  ReasoningEffort,
+  TaskAssetKind,
+  TaskExecutionProfile,
+} from "@codex-feishu-bridge/protocol";
 
 import type { DaemonSnapshot } from "./task-model";
 
@@ -57,6 +65,7 @@ interface TaskMessagePayload {
 
 interface TaskSettingsPayload {
   desktopReplySyncToFeishu?: boolean;
+  feishuRunningMessageMode?: FeishuRunningMessageMode;
   executionProfile?: TaskExecutionProfile;
 }
 

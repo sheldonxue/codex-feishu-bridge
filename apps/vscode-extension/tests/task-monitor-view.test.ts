@@ -74,6 +74,8 @@ describe("task monitor view source", () => {
     assert.match(source, /Retry Last Turn<\/button>/);
     assert.match(source, /title="Create a new topic in the default Feishu group and bind this task to it for mobile follow-up\."/);
     assert.match(source, /title="Re-fetch the current daemon snapshot and any host-thread updates\."/);
+    assert.match(source, /data-action="toggle-feishu-running-mode"/);
+    assert.match(source, /Queue Feishu messages while Codex is already running/);
     assert.match(source, /button\.pending::before/);
     assert.match(source, /@keyframes monitor-spin/);
     assert.match(source, /function startPendingButton\(button\)/);
@@ -106,6 +108,8 @@ describe("task monitor view source", () => {
     assert.match(source, /<strong>Plan Mode<\/strong>/);
     assert.match(source, /<strong>Sandbox<\/strong>/);
     assert.match(source, /<strong>Approval<\/strong>/);
+    assert.match(source, /<strong>Feishu While Running<\/strong>/);
+    assert.match(source, /<strong>Queued Next Turns<\/strong>/);
   });
 
   it("renders the monitor as an editor panel entry point instead of a sidebar view contribution", () => {

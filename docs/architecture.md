@@ -35,6 +35,7 @@
 - Desktop Composer 可直接设置后续 turn 的 `model`、`effort`、`planMode`，并附加本地照片或文件
 - 监视器页支持对未绑定任务一键 `Bind to New Feishu Topic`，在默认飞书群里创建新话题并立刻绑定当前任务
 - 任务卡片同时显示任务启动来源标签和当前 Feishu 绑定标签，例如 `VSCODE + FEISHU`、`CLI + FEISHU`
+- 监视器页可切换“Feishu 在运行中发来的消息是直接 steer 当前 turn，还是 queue 到下一轮”
 - 暴露 `openMonitor`、`newTask`、`resumeTask`、`importThreads`、`sendMessage`、`interruptTask`、`approve*`、`retryTurn`、`openDiff`
 - 只与本地 daemon 通信，不依赖 OpenAI VSCode 扩展私有实现
 
@@ -46,6 +47,7 @@
 - 未绑定线程先进入 draft card；draft 与已绑定任务卡都可设置 `model`、`effort`、`planMode`
 - Feishu 的文本、图片、文件消息都可以进入同一个 task；图片走原生图像输入，文件作为本地路径附件交给 Codex
 - 已绑定任务卡提供 `View Status`、`Stop Turn`、`Retry Last Turn`、`Archive Task`、`Unbind Thread`
+- 已绑定任务卡可切换“Feishu 在运行中发来的消息是 steer 当前 turn，还是 queue 到下一轮”
 - `Archive Task` 会终结当前 Feishu 话题的 bridge 绑定能力；后续同话题里的文本、图片、文件不会再继续同步到主机任务
 
 ## 目录结构
@@ -69,7 +71,7 @@
 ## 核心数据结构
 
 - `BridgeTask`
-  - `taskId`, `threadId`, `mode`, `taskOrigin`, `title`, `workspaceRoot`, `status`, `activeTurnId`, `feishuBinding`
+  - `taskId`, `threadId`, `mode`, `taskOrigin`, `title`, `workspaceRoot`, `status`, `activeTurnId`, `feishuBinding`, `feishuRunningMessageMode`, `queuedMessageCount`
 - `BridgeEvent`
   - `seq`, `taskId`, `kind`, `timestamp`, `payload`
 - `QueuedApproval`

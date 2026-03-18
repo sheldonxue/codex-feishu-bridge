@@ -177,9 +177,11 @@ describe("bridge daemon task http server", () => {
         },
         body: JSON.stringify({
           desktopReplySyncToFeishu: false,
+          feishuRunningMessageMode: "queue",
         }),
       }).then((result) => result.json());
       assert.equal(updatedSettings.task.desktopReplySyncToFeishu, false);
+      assert.equal(updatedSettings.task.feishuRunningMessageMode, "queue");
 
       const unbound = await fetch(`${baseUrl}/tasks/${secondTaskId}/feishu/unbind`, {
         method: "POST",

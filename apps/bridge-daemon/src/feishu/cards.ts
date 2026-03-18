@@ -1,6 +1,7 @@
 import type {
   ApprovalPolicy,
   BridgeTask,
+  FeishuRunningMessageMode,
   FeishuThreadBinding,
   QueuedApproval,
   ReasoningEffort,
@@ -79,6 +80,7 @@ export type FeishuCardActionKind =
   | "task.select.model"
   | "task.select.effort"
   | "task.toggle.plan-mode"
+  | "task.toggle.feishu-running-mode"
   | "task.status"
   | "task.interrupt"
   | "task.retry"
@@ -201,6 +203,10 @@ function formatExecutionProfile(profile: TaskExecutionProfile | undefined): stri
     `sandbox: ${profile?.sandbox ?? DEFAULT_NEW_SANDBOX}`,
     `approvalPolicy: ${profile?.approvalPolicy ?? DEFAULT_NEW_APPROVAL_POLICY}`,
   ];
+}
+
+function formatFeishuRunningMessageMode(mode: FeishuRunningMessageMode): string {
+  return mode === "queue" ? "queue next turn" : "steer current turn";
 }
 
 function taskStartGuidance(task: BridgeTask): string[] {
@@ -483,6 +489,8 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           `taskId: ${task.taskId}`,
           `status: ${task.status}`,
           ...formatExecutionProfile(task.executionProfile),
+          `feishu while running: ${formatFeishuRunningMessageMode(task.feishuRunningMessageMode)}`,
+          `queued next-turn messages: ${task.queuedMessageCount}`,
           `attachments: ${task.assets.length}`,
           `messages: ${task.conversation.length}`,
           `pending approvals: ${task.pendingApprovals.filter((approval) => approval.state === "pending").length}`,
@@ -515,6 +523,17 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           text: `Plan Mode: ${task.executionProfile.planMode ? "On" : "Off"}`,
           type: task.executionProfile.planMode ? "primary" : "default",
           value: baseActionValue("task.toggle.plan-mode", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
+        button({
+          text:
+            task.feishuRunningMessageMode === "queue"
+              ? "While Running: Queue Next Turn"
+              : "While Running: Steer Current Turn",
+          type: task.feishuRunningMessageMode === "queue" ? "primary" : "default",
+          value: baseActionValue("task.toggle.feishu-running-mode", binding, {
             taskId: task.taskId,
             revision,
           }),

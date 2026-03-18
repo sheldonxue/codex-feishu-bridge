@@ -319,6 +319,8 @@ function formatTaskSummary(task: BridgeTask): string {
     `attachments: ${task.assets.length}`,
     `messages: ${task.conversation.length}`,
     `desktopReplySyncToFeishu: ${task.desktopReplySyncToFeishu}`,
+    `feishuRunningMessageMode: ${task.feishuRunningMessageMode}`,
+    `queuedMessageCount: ${task.queuedMessageCount}`,
     ...formatExecutionProfile(task.executionProfile),
     task.feishuBinding ? `threadKey: ${task.feishuBinding.threadKey}` : "threadKey: unbound",
   ].join("\n");
@@ -848,6 +850,22 @@ export class FeishuBridge {
     }
 
     switch (event.kind) {
+      case "task.message.queued":
+        await this.renderTaskControlCard({
+          task,
+          binding: task.feishuBinding,
+          note:
+            task.queuedMessageCount === 1
+              ? "Queued 1 Feishu message for the next turn."
+              : `Queued ${task.queuedMessageCount} Feishu messages for upcoming turns.`,
+        });
+        return;
+      case "task.message.sent":
+        await this.renderTaskControlCard({
+          task,
+          binding: task.feishuBinding,
+        });
+        return;
       case "approval.requested": {
         const approval =
           event.payload &&
@@ -1358,6 +1376,8 @@ export class FeishuBridge {
           binding ? `threadKey: ${binding.threadKey}` : undefined,
           binding?.rootMessageId ? `rootMessageId: ${binding.rootMessageId}` : undefined,
           `desktopReplySyncToFeishu: ${task.desktopReplySyncToFeishu}`,
+          `feishuRunningMessageMode: ${task.feishuRunningMessageMode}`,
+          `queuedMessageCount: ${task.queuedMessageCount}`,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -2316,6 +2336,17 @@ export class FeishuBridge {
         note = `Plan mode ${nextPlanMode ? "enabled" : "disabled"}.`;
         break;
         }
+      case "task.toggle.feishu-running-mode": {
+        const nextMode = task.feishuRunningMessageMode === "queue" ? "steer" : "queue";
+        await this.options.service.updateTaskSettings(task.taskId, {
+          feishuRunningMessageMode: nextMode,
+        });
+        note =
+          nextMode === "queue"
+            ? "Feishu messages sent during a running turn will now queue for the next turn."
+            : "Feishu messages sent during a running turn will now steer the active turn immediately.";
+        break;
+      }
       case "task.status":
         note = formatTaskSummary(task);
         break;

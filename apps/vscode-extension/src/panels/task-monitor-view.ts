@@ -112,6 +112,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
       requestId?: string;
       decision?: "accept" | "decline" | "cancel";
       enabled?: boolean;
+      feishuRunningMessageMode?: "steer" | "queue";
       limit?: number;
       taskIds?: string[];
       executionProfile?: TaskExecutionProfile;
@@ -257,6 +258,18 @@ export class TaskMonitorPanel implements vscode.Disposable {
           }
           await this.options.client.updateTaskSettings(task.taskId, {
             desktopReplySyncToFeishu: Boolean(payload.enabled),
+          });
+          actionSucceeded = true;
+          await this.options.store.refresh();
+          return;
+        }
+        case "toggle-feishu-running-mode": {
+          const task = this.getTask(payload.taskId);
+          if (!task) {
+            return;
+          }
+          await this.options.client.updateTaskSettings(task.taskId, {
+            feishuRunningMessageMode: payload.enabled ? "queue" : "steer",
           });
           actionSucceeded = true;
           await this.options.store.refresh();
@@ -1579,6 +1592,8 @@ export class TaskMonitorPanel implements vscode.Disposable {
               <div class="metric"><strong>Plan Mode</strong><span>\${escapeHtml(task.executionProfile?.planMode ? "on" : "off")}</span></div>
               <div class="metric"><strong>Sandbox</strong><span>\${escapeHtml(executionValue(task.executionProfile?.sandbox, "runtime-default"))}</span></div>
               <div class="metric"><strong>Approval</strong><span>\${escapeHtml(executionValue(task.executionProfile?.approvalPolicy, "runtime-default"))}</span></div>
+              <div class="metric"><strong>Feishu While Running</strong><span>\${escapeHtml(task.feishuRunningMessageMode === "queue" ? "queue next turn" : "steer current turn")}</span></div>
+              <div class="metric"><strong>Queued Next Turns</strong><span>\${escapeHtml(String(task.queuedMessageCount))}</span></div>
               <div class="metric"><strong>Feishu Chat</strong><span>\${escapeHtml(task.feishuBinding?.chatId ?? "unbound")}</span></div>
               <div class="metric"><strong>Feishu Thread</strong><span>\${escapeHtml(task.feishuBinding?.threadKey ?? "unbound")}</span></div>
             </div>
@@ -1586,6 +1601,10 @@ export class TaskMonitorPanel implements vscode.Disposable {
               <label class="toggle" title="When enabled, desktop-side agent replies keep posting back into the bound Feishu thread.">
                 <input id="sync-toggle" type="checkbox" data-action="toggle-feishu-sync" \${task.desktopReplySyncToFeishu ? "checked" : ""} \${task.feishuBinding ? "" : "disabled"} />
                 <span>Desktop replies continue syncing back to Feishu</span>
+              </label>
+              <label class="toggle" title="When enabled, Feishu messages that arrive during a running turn wait for the next turn instead of steering the current one immediately.">
+                <input id="feishu-running-mode-toggle" type="checkbox" data-action="toggle-feishu-running-mode" \${task.feishuRunningMessageMode === "queue" ? "checked" : ""} />
+                <span>Queue Feishu messages while Codex is already running</span>
               </label>
               <div class="actions">
                 <button data-action="open-status" title="Open the bridge status page for daemon health, account, and runtime limits.">View Status</button>
@@ -1973,17 +1992,25 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
       document.addEventListener("change", (event) => {
         const target = event.target;
-        if (target instanceof HTMLInputElement && target.dataset.action === "toggle-feishu-sync" && state.selectedTaskId) {
-          vscode.postMessage({
-            type: "toggle-feishu-sync",
-            taskId: state.selectedTaskId,
-            enabled: target.checked,
-          });
-          return;
-        }
-        if (target instanceof HTMLInputElement && target.dataset.action === "toggle-local-imported-tasks") {
-          vscode.postMessage({
-            type: "toggle-local-imported-tasks",
+                if (target instanceof HTMLInputElement && target.dataset.action === "toggle-feishu-sync" && state.selectedTaskId) {
+                  vscode.postMessage({
+                    type: "toggle-feishu-sync",
+                    taskId: state.selectedTaskId,
+                    enabled: target.checked,
+                  });
+                  return;
+                }
+                if (target instanceof HTMLInputElement && target.dataset.action === "toggle-feishu-running-mode" && state.selectedTaskId) {
+                  vscode.postMessage({
+                    type: "toggle-feishu-running-mode",
+                    taskId: state.selectedTaskId,
+                    enabled: target.checked,
+                  });
+                  return;
+                }
+                if (target instanceof HTMLInputElement && target.dataset.action === "toggle-local-imported-tasks") {
+                  vscode.postMessage({
+                    type: "toggle-local-imported-tasks",
             enabled: target.checked,
           });
           return;

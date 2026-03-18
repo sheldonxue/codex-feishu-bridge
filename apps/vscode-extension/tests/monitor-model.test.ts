@@ -87,6 +87,8 @@ describe("monitor model", () => {
     task.updatedAt = "2026-03-18T00:00:03.000Z";
     task.taskOrigin = "vscode";
     task.desktopReplySyncToFeishu = true;
+    task.feishuRunningMessageMode = "queue";
+    task.queuedMessageCount = 2;
     task.executionProfile = {
       model: "gpt-5.4-mini",
       effort: "high",
@@ -131,11 +133,14 @@ describe("monitor model", () => {
       ["FEISHU", "VSCODE"],
     );
     assert.doesNotMatch(state.tasks[0]?.description ?? "", /Feishu/i);
+    assert.match(state.tasks[0]?.description ?? "", /2 queued/);
     assert.equal(
       state.tasks[0]?.executionSummary,
       "Model: gpt-5.4-mini · Reasoning: high · Plan: on",
     );
     assert.equal(state.selectedTask?.desktopReplySyncToFeishu, true);
+    assert.equal(state.selectedTask?.feishuRunningMessageMode, "queue");
+    assert.equal(state.selectedTask?.queuedMessageCount, 2);
     assert.equal(state.selectedTask?.taskOrigin, "vscode");
     assert.deepEqual(
       state.selectedTask?.badges.map((badge) => badge.label),

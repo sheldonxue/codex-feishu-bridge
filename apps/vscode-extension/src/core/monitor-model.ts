@@ -48,6 +48,8 @@ export interface MonitorTaskState {
   threadId: string;
   activeTurnId?: string;
   desktopReplySyncToFeishu: boolean;
+  feishuRunningMessageMode: BridgeTask["feishuRunningMessageMode"];
+  queuedMessageCount: number;
   feishuBinding?: BridgeTask["feishuBinding"];
   executionProfile: BridgeTask["executionProfile"];
   assets: Array<{
@@ -119,6 +121,10 @@ function taskDescription(task: BridgeTask): string {
   const pendingApprovals = task.pendingApprovals.filter((entry) => entry.state === "pending").length;
   if (pendingApprovals > 0) {
     details.push(`${pendingApprovals} approvals`);
+  }
+  const queuedMessageCount = task.queuedMessageCount ?? 0;
+  if (queuedMessageCount > 0) {
+    details.push(`${queuedMessageCount} queued`);
   }
   details.push(`${task.conversation.length} msgs`);
   return details.join(" · ");
@@ -208,6 +214,8 @@ export function buildMonitorState(
           threadId: selectedTask.threadId,
           activeTurnId: selectedTask.activeTurnId,
           desktopReplySyncToFeishu: selectedTask.desktopReplySyncToFeishu,
+          feishuRunningMessageMode: selectedTask.feishuRunningMessageMode ?? "steer",
+          queuedMessageCount: selectedTask.queuedMessageCount ?? 0,
           feishuBinding: selectedTask.feishuBinding,
           executionProfile: selectedTask.executionProfile,
           assets: (selectedTask.assets ?? []).map((asset) => ({
