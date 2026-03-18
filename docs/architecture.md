@@ -32,6 +32,7 @@
 - 主监视器通过 `Open Monitor` 命令以 Webview editor tab 打开，而不是常驻侧栏
 - VSCode 调试启动项通过 `preLaunchTask` 复用根脚本的一键启动流程
 - 监视器页内置任务列表、Conversation、Desktop Composer，以及本地任务多选批量清理
+- 监视器页支持对未绑定任务一键 `Bind to New Feishu Topic`，在默认飞书群里创建新话题并立刻绑定当前任务
 - 任务卡片同时显示任务启动来源标签和当前 Feishu 绑定标签，例如 `VSCODE + FEISHU`、`CLI + FEISHU`
 - 暴露 `openMonitor`、`newTask`、`resumeTask`、`importThreads`、`sendMessage`、`interruptTask`、`approve*`、`retryTurn`、`openDiff`
 - 只与本地 daemon 通信，不依赖 OpenAI VSCode 扩展私有实现
@@ -89,6 +90,7 @@
 - `/tasks/:id/uploads`
 - `/tasks/:id/approvals/*`
 - `/tasks/:id/feishu/bind`
+- `/tasks/:id/feishu/topic`
 - `/tasks/import`
 - `/feishu/webhook`
 

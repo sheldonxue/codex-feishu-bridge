@@ -80,7 +80,7 @@ npm run start:all
 1. 打开 VSCode 监视器
 2. 先点 `Refresh`
 3. 如果任务还没出现，再点 `Import Recent Host Threads`
-4. 把任务同步到 bridge / Feishu
+4. 在任务详情里点 `Bind to New Feishu Topic`，把当前任务一键绑定到默认飞书群的新话题
 5. 之后在手机上继续看进度、收回复、处理审批
 6. 回到工位后，再在 VSCode 里接管同一条任务
 
@@ -240,6 +240,7 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 - 看全部任务，以及 `FEISHU`、`VSCODE`、`CLI` 等来源标签
 - 查看当前任务的状态、workspace、threadId、会话、审批和 diff
 - 在页面底部的 composer 继续发消息
+- 对未绑定飞书的任务点 `Bind to New Feishu Topic`，直接在默认飞书群里创建新话题并绑定当前任务
 - 对已绑定飞书的任务控制“桌面回复是否继续同步回飞书”
 - 对本地未绑定任务批量 `Forget Selected` 或 `Delete Selected`
 
@@ -248,7 +249,7 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 `Import Recent Host Threads` 适合两种情况：
 
 - 宿主机上已经有任务，但监视器里还没显示出来
-- 你准备离开工位，想先把主机上的任务同步到 bridge / Feishu，再去手机上继续监工
+- 你准备离开工位，想先把主机上的任务带进监视器，再用 `Bind to New Feishu Topic` 一键同步到飞书
 
 ### 飞书使用方式
 

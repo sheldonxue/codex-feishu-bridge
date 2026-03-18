@@ -23,7 +23,7 @@ Common mobile scenarios include:
 - get the result without first returning to the workstation
 
 - start or continue a task on the host machine
-- sync or bind that running task into a Feishu thread before leaving the desk
+- open the VSCode monitor and use `Bind to New Feishu Topic` to create a fresh Feishu topic for that running task before leaving the desk
 - keep watching replies, approvals, and interrupts from the phone
 - resume desktop takeover in VSCode when back at the workstation
 
