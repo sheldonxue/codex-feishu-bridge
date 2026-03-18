@@ -250,6 +250,26 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           await this.options.store.refresh();
           return;
         }
+        case "delete-local-task": {
+          const task = this.getTask(payload.taskId);
+          if (!task || task.feishuBinding) {
+            return;
+          }
+          const confirmed = await vscode.window.showWarningMessage(
+            "Delete this local task from the bridge monitor? The underlying host Codex thread in ~/.codex will be kept.",
+            { modal: true },
+            "Delete Local Task",
+          );
+          if (!confirmed) {
+            return;
+          }
+          await this.options.forgetLocalTask(task.taskId);
+          if (this.selectedTaskId === task.taskId) {
+            await this.setSelectedTask(undefined);
+          }
+          await this.options.store.refresh();
+          return;
+        }
         default:
           return;
       }
@@ -772,7 +792,7 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
                 <button data-action="retry">Retry</button>
                 <button \${task.feishuBinding ? "" : "disabled"} data-action="unbind">Unbind</button>
                 <button \${task.canForgetLocalTask ? "" : "disabled"} data-action="forget-local-task">Forget Local</button>
-                <button class="danger" \${task.canForgetLocalTask ? "" : "disabled"} data-action="forget-local-task">Delete Local</button>
+                <button class="danger" \${task.canForgetLocalTask ? "" : "disabled"} data-action="delete-local-task">Delete Local</button>
               </div>
             </div>
             \${task.latestSummary ? \`<div class="panel" style="margin-top: 12px; padding: 12px;"><div class="eyebrow">Latest Summary</div>\${pre(task.latestSummary)}</div>\` : ""}
@@ -910,6 +930,12 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
               return;
             }
             vscode.postMessage({ type: "forget-local-task", taskId });
+            return;
+          case "delete-local-task":
+            if (!taskId) {
+              return;
+            }
+            vscode.postMessage({ type: "delete-local-task", taskId });
             return;
           case "resolve-approval":
             if (!taskId || !target.dataset.requestId || !target.dataset.decision) {
