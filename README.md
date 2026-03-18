@@ -38,9 +38,10 @@ FEISHU_DEFAULT_CHAT_NAME=你的飞书群名
 FEISHU_DEFAULT_CHAT_ID=oc_xxx
 ```
 
-另外只要确认两件事：
+另外只要确认三件事：
 
 - 机器人已经加入目标飞书群
+- 目标飞书群已经在群设置里开启“话题模式”
 - 飞书后台已经开启 long-connection 的 `im.message.receive_v1` 和 `card.action.trigger`
 
 ### 2. 一键启动
@@ -68,9 +69,9 @@ npm run start:all
 
 ### 4. 开始在飞书里用
 
-1. 在有机器人的目标飞书群里新建话题，或者先发一条普通文本
+1. 在有机器人的目标飞书群里确认已经开启“话题模式”，然后新建话题，或者先发一条普通文本
 2. bridge 会回复一张配置卡片
-3. 在卡片里点 `Create Task`
+3. 在卡片里点 `Create on Host`
 4. 之后继续在同一线程里聊天、看回复、处理审批
 
 ## 离开工位时怎么用
@@ -78,7 +79,7 @@ npm run start:all
 如果任务已经在主机上跑着，但你准备离开工位：
 
 1. 打开 VSCode 监视器
-2. 先点 `Refresh`
+2. 先点 `Refresh Tasks`
 3. 如果任务还没出现，再点 `Import Recent Host Threads`
 4. 在任务详情里点 `Bind to New Feishu Topic`，把当前任务一键绑定到默认飞书群的新话题
 5. 之后在手机上继续看进度、收回复、处理审批
@@ -106,12 +107,13 @@ npm run stop:all
 推荐路径很简单：
 
 1. 在飞书里发第一条普通文本
-2. 收到卡片后点击 `Create Task`
+2. 收到卡片后点击 `Create on Host`
 3. 之后继续在同一线程里聊天、看回复、处理审批
 
 如果群里没有反应，优先检查：
 
 - 机器人是否已经加入目标群
+- 目标飞书群是否已经在群设置里开启“话题模式”
 - `docker/.env` 里的群名或群 ID 是否正确
 - 飞书后台是否已经开启 `im.message.receive_v1` 和 `card.action.trigger`
 
@@ -138,7 +140,7 @@ npm run stop:all
 - 在飞书线程里发送第一条普通文本
 - 由桥接器回复一张配置卡片
 - 在卡片里选择模型、reasoning effort、sandbox、approval policy
-- 点击 `Create Task`
+- 点击 `Create on Host`
 - 之后继续在同一线程里用普通文本和 agent 对话
 
 另一个常见场景是：
@@ -227,7 +229,7 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 
 ### VSCode 图形化监视器
 
-这是桌面端查看、接管和整理任务的主入口。
+这是桌面端查看、接管、整理和同步任务的主入口。
 
 推荐打开方式：
 
@@ -235,21 +237,40 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 2. `F5` 会自动启动本地 bridge，并打开新的 `Extension Development Host`
 3. monitor 会在新窗口里自动打开
 
-在监视器里，你通常会做这些事：
+进入 monitor 后，可以按下面的顺序理解它：
 
-- 看全部任务，以及 `FEISHU`、`VSCODE`、`CLI` 等来源标签
-- 查看当前任务的状态、workspace、threadId、会话、审批和 diff
-- 在页面底部的 composer 继续发消息
-- 对未绑定飞书的任务点 `Bind to New Feishu Topic`，直接在默认飞书群里创建新话题并绑定当前任务
-- 对已绑定飞书的任务控制“桌面回复是否继续同步回飞书”
-- 对本地未绑定任务批量 `Forget Selected` 或 `Delete Selected`
+#### 1. 先看左侧任务列表
 
-如果列表里还没有你关心的任务，先点 `Refresh`。如果任务原本就在宿主机 `~/.codex` 里，但还没进入 bridge，再点 `Import Recent Host Threads`。
+- 每一条任务都会显示状态、消息数，以及来源标签 `FEISHU`、`VSCODE`、`CLI`
+- 如果一条任务原本来自 `VSCODE` 或 `CLI`，后来又绑定了飞书，你会同时看到多个标签，例如 `CLI + FEISHU`
+- `Refresh Tasks` 会重新拉取 daemon 当前状态，并同步宿主机线程变化
 
-`Import Recent Host Threads` 适合两种情况：
+#### 2. 再看中间的任务详情
 
-- 宿主机上已经有任务，但监视器里还没显示出来
-- 你准备离开工位，想先把主机上的任务带进监视器，再用 `Bind to New Feishu Topic` 一键同步到飞书
+- `Conversation` 会展示当前任务已经同步进 bridge 的完整对话
+- `Approvals` 会显示待处理审批，默认折叠；有需要时再展开
+- `Diffs` 会显示任务产出的 diff，默认折叠；适合在桌面端集中查看
+- 任务详情里还能看到当前 workspace、threadId、最近状态和飞书绑定情况
+
+#### 3. 最底部是 Desktop Composer
+
+- 这里是桌面端继续和同一条任务对话的输入框
+- 你可以在这里继续发消息，也可以为下一轮选择模型、推理强度、是否开启 plan mode
+- 还可以附加本地照片或文件，再把它们和文字一起发给当前任务
+- 如果这条任务已经绑定飞书，桌面端后续回复也可以继续同步回飞书线程
+
+#### 4. 常见任务操作
+
+- `Bind to New Feishu Topic`：给一个还没绑定飞书的任务，在默认飞书群里一键新建话题并立刻绑定
+- `Import Recent Host Threads`：把宿主机 `~/.codex` 里最近的线程导入 monitor
+- `Forget Local Copy`：只从 monitor 里移除本地记录，不删除底层 Codex 线程
+- `Delete Local`：删除本地 thread 数据，属于真删除，只建议在你明确不需要时使用
+- `Multi-select`：进入批量模式后，可以对本地未绑定任务统一 `Forget Selected` 或 `Delete Selected`
+
+`Import Recent Host Threads` 最适合两种情况：
+
+- 宿主机上已经有任务，但 monitor 里还没显示出来
+- 你准备离开工位，想先把主机任务带进 monitor，再用 `Bind to New Feishu Topic` 一键同步到飞书
 
 ### 飞书使用方式
 
@@ -348,7 +369,7 @@ FEISHU_DEFAULT_CHAT_ID=oc_xxx
 2. 发第一条普通文本，描述你要做的事情
 3. 让 `bridge-daemon` 回复一张配置卡片
 4. 在卡片里选择模型、reasoning effort、sandbox、approval policy
-5. 点击 `Create Task`
+5. 点击 `Create on Host`
 6. 在同一线程里继续用普通文本对话
 7. 用控制卡处理状态、interrupt、retry、审批、解绑等动作
 

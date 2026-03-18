@@ -52,6 +52,8 @@ Common mobile scenarios include:
 
 ## Quick Start
 
+Before the first real Feishu run, make sure the target group has topic mode enabled in the group settings.
+
 Use the one-click bootstrap entry by default:
 
 ```bash
@@ -143,7 +145,7 @@ BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 
 ## VSCode Monitor
 
-This is the main desktop entry for watching, taking over, and cleaning up tasks.
+This is the main desktop entry for watching, taking over, organizing, and syncing tasks.
 
 Recommended way to open it:
 
@@ -151,15 +153,34 @@ Recommended way to open it:
 2. `F5` bootstraps the local bridge first, then opens the Extension Development Host.
 3. The monitor opens automatically in that window.
 
-In the monitor, you usually use it to:
+Read the monitor in this order:
 
-- see all tasks with `FEISHU`, `VSCODE`, and `CLI` badges
-- inspect status, workspace, thread id, conversation, approvals, and diffs
-- continue the task from the composer at the bottom
-- control whether desktop replies keep syncing back to Feishu
-- bulk `Forget Selected` or `Delete Selected` local unbound tasks
+### 1. Task list
 
-If the task list does not show the task you care about yet, click `Refresh` first. If the task already exists in host-side `~/.codex` but has not entered the bridge yet, use `Import Recent Host Threads`.
+- each task shows status, message count, and origin badges such as `FEISHU`, `VSCODE`, and `CLI`
+- tasks can show multiple badges at once, for example `CLI + FEISHU`, when a host task is later bound to Feishu
+- `Refresh Tasks` reloads daemon state and re-syncs host thread changes
+
+### 2. Task detail
+
+- `Conversation` shows the full conversation that bridge has synced for the task
+- `Approvals` is collapsed by default and expands only when you need to handle approvals
+- `Diffs` is also collapsed by default and is meant for desktop review
+- the detail area also shows workspace, thread id, status, and Feishu binding state
+
+### 3. Desktop Composer
+
+- the composer at the bottom is the desktop input for continuing the same task
+- you can send another message, choose model and reasoning effort, toggle plan mode, and attach local photos or files
+- if the task is already bound to Feishu, desktop-side follow-up replies can continue syncing back to the same Feishu thread
+
+### 4. Common actions
+
+- `Bind to New Feishu Topic`: create a fresh Feishu topic in the default group and bind the current task to it
+- `Import Recent Host Threads`: pull recent host-side `~/.codex` threads into the monitor
+- `Forget Local Copy`: remove the local monitor record without deleting the underlying Codex thread
+- `Delete Local`: remove the local thread data for real
+- `Multi-select`: enter batch mode for local unbound tasks and run `Forget Selected` or `Delete Selected`
 
 `Import Recent Host Threads` is most useful when:
 
@@ -201,12 +222,15 @@ Use this checklist to collect the values required by `docker/.env`.
 3. Enable the bot capability and add the bot to the target group.
    The bridge can only receive group messages after the app bot has joined the chat you want to use.
 
-4. Enable long-connection event subscription.
+4. Enable topic mode in the target Feishu group.
+   The recommended mobile workflow assumes you start from a group topic or thread, so topic mode should be turned on in the group settings.
+
+5. Enable long-connection event subscription.
    In the event subscription section, choose the long-connection mode and enable at least:
    - `im.message.receive_v1`
    - `card.action.trigger`
 
-5. Decide how to identify the default group.
+6. Decide how to identify the default group.
    Two supported options exist:
    - recommended: set `FEISHU_DEFAULT_CHAT_NAME`
    - fixed value: set `FEISHU_DEFAULT_CHAT_ID`
@@ -220,7 +244,7 @@ Use this checklist to collect the values required by `docker/.env`.
 
    The first command lists visible chats, and the second resolves the exact `chat_id` for one group name.
 
-6. Only configure webhook security values if you intentionally keep the compatibility path enabled.
+7. Only configure webhook security values if you intentionally keep the compatibility path enabled.
    For the recommended long-connection path, these are not required:
    - `FEISHU_VERIFICATION_TOKEN`
    - `FEISHU_ENCRYPT_KEY`
@@ -264,7 +288,7 @@ The current Feishu workflow is:
 2. Send the first plain-text message describing the task.
 3. Let `bridge-daemon` create or refresh a draft and reply with a configuration card.
 4. Use the card to choose model, reasoning effort, sandbox, and approval policy.
-5. Press `Create Task`.
+5. Press `Create on Host`.
 6. Continue the task with plain text in the same thread.
 7. Use the control card for status, interrupt, retry, approvals, inspect, and unbind actions.
 
