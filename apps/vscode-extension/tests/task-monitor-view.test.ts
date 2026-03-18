@@ -113,4 +113,15 @@ describe("task monitor view source", () => {
     assert.match(source, /createWebviewPanel\(/);
     assert.match(source, /TaskMonitorPanel\.panelType/);
   });
+
+  it("keeps an explicitly selected task pinned instead of auto-switching on reopen or refresh", () => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const sourcePath = path.resolve(currentDir, "../src/panels/task-monitor-view.ts");
+    const source = readFileSync(sourcePath, "utf8");
+
+    assert.match(source, /private static readonly userSelectedTaskStorageKey = "codexFeishuBridge\.monitor\.userSelectedTask";/);
+    assert.match(source, /if \(taskId\) {\s*await this\.setSelectedTask\(taskId\);\s*}/s);
+    assert.match(source, /autoSelectFirstTask: !this\.hasUserSelectedTask,/);
+    assert.match(source, /if \(state\.selectedTaskId && state\.selectedTaskId !== this\.selectedTaskId\) {/);
+  });
 });

@@ -81,6 +81,7 @@ export interface MonitorViewState {
 
 interface BuildMonitorStateOptions {
   showLocalImportedTasks?: boolean;
+  autoSelectFirstTask?: boolean;
 }
 
 function normalizedTaskOrigin(task: Pick<BridgeTask, "mode" | "taskOrigin">): BridgeTask["taskOrigin"] {
@@ -144,6 +145,7 @@ export function pickMonitorTask(
   tasks: BridgeTask[],
   selectedTaskId?: string,
   showLocalImportedTasks = false,
+  autoSelectFirstTask = true,
 ): BridgeTask | null {
   const visibleTasks = filterMonitorTasks(tasks, showLocalImportedTasks);
   if (selectedTaskId) {
@@ -151,6 +153,12 @@ export function pickMonitorTask(
     if (selected) {
       return selected;
     }
+
+    return autoSelectFirstTask ? (visibleTasks.find((task) => Boolean(task.feishuBinding)) ?? visibleTasks[0] ?? null) : null;
+  }
+
+  if (!autoSelectFirstTask) {
+    return null;
   }
 
   return visibleTasks.find((task) => Boolean(task.feishuBinding)) ?? visibleTasks[0] ?? null;
@@ -162,8 +170,9 @@ export function buildMonitorState(
   options?: BuildMonitorStateOptions,
 ): MonitorViewState {
   const showLocalImportedTasks = options?.showLocalImportedTasks ?? false;
+  const autoSelectFirstTask = options?.autoSelectFirstTask ?? true;
   const visibleTasks = filterMonitorTasks(snapshot.tasks, showLocalImportedTasks);
-  const selectedTask = pickMonitorTask(snapshot.tasks, selectedTaskId, showLocalImportedTasks);
+  const selectedTask = pickMonitorTask(snapshot.tasks, selectedTaskId, showLocalImportedTasks, autoSelectFirstTask);
   return {
     connection: snapshot.connection,
     taskCount: visibleTasks.length,

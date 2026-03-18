@@ -44,16 +44,21 @@ export class TaskMonitorPanel implements vscode.Disposable {
   static readonly panelType = "codexFeishuBridge.monitorPanel";
   private static readonly panelTitle = "Codex Feishu Monitor";
   private static readonly selectedTaskStorageKey = "codexFeishuBridge.monitor.selectedTaskId";
+  private static readonly userSelectedTaskStorageKey = "codexFeishuBridge.monitor.userSelectedTask";
   private static readonly showLocalImportedTasksStorageKey = "codexFeishuBridge.monitor.showLocalImportedTasks";
 
   private readonly disposables: vscode.Disposable[] = [];
   private panel: vscode.WebviewPanel | null = null;
   private selectedTaskId: string | undefined;
+  private hasUserSelectedTask: boolean;
   private showLocalImportedTasks: boolean;
   private focusComposerOnNextState = false;
 
   constructor(private readonly options: TaskMonitorPanelOptions) {
     this.selectedTaskId = this.options.context.workspaceState.get<string>(TaskMonitorPanel.selectedTaskStorageKey);
+    this.hasUserSelectedTask =
+      this.options.context.workspaceState.get<boolean>(TaskMonitorPanel.userSelectedTaskStorageKey) ??
+      Boolean(this.selectedTaskId);
     this.showLocalImportedTasks =
       this.options.context.workspaceState.get<boolean>(TaskMonitorPanel.showLocalImportedTasksStorageKey) ?? false;
     this.disposables.push({
@@ -65,7 +70,9 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
   async show(taskOrId?: BridgeTask | string, focusComposer = false): Promise<void> {
     const taskId = typeof taskOrId === "string" ? taskOrId : taskOrId?.taskId;
-    await this.setSelectedTask(taskId);
+    if (taskId) {
+      await this.setSelectedTask(taskId);
+    }
     if (focusComposer) {
       this.focusComposerOnNextState = true;
     }
@@ -376,8 +383,12 @@ export class TaskMonitorPanel implements vscode.Disposable {
     return this.options.store.getTask(taskId);
   }
 
-  private async setSelectedTask(taskId?: string): Promise<void> {
+  private async setSelectedTask(taskId?: string, markAsUserSelection = true): Promise<void> {
     this.selectedTaskId = taskId;
+    if (markAsUserSelection) {
+      this.hasUserSelectedTask = true;
+      await this.options.context.workspaceState.update(TaskMonitorPanel.userSelectedTaskStorageKey, true);
+    }
     await this.options.context.workspaceState.update(TaskMonitorPanel.selectedTaskStorageKey, taskId);
   }
 
@@ -404,6 +415,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
     }
     const state = buildMonitorState(this.options.store.getSnapshot(), this.selectedTaskId, {
       showLocalImportedTasks: this.showLocalImportedTasks,
+      autoSelectFirstTask: !this.hasUserSelectedTask,
     });
     let models: ModelDescriptor[] = [];
     try {
@@ -411,7 +423,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
     } catch {
       models = [];
     }
-    if (state.selectedTaskId !== this.selectedTaskId) {
+    if (state.selectedTaskId && state.selectedTaskId !== this.selectedTaskId) {
       this.selectedTaskId = state.selectedTaskId;
       await this.options.context.workspaceState.update(TaskMonitorPanel.selectedTaskStorageKey, this.selectedTaskId);
     }

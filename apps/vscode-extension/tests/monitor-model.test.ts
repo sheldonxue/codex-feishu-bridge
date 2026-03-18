@@ -35,6 +35,45 @@ describe("monitor model", () => {
     assert.equal(pickMonitorTask([first, second])?.taskId, second.taskId);
     assert.equal(pickMonitorTask([first, second], first.taskId, true)?.taskId, first.taskId);
     assert.equal(pickMonitorTask([first, second], first.taskId)?.taskId, second.taskId);
+    assert.equal(pickMonitorTask([first, second], first.taskId, false, false), null);
+  });
+
+  it("does not auto-switch to another task after an explicit selection disappears", () => {
+    const first = createBridgeTask({
+      threadId: "thr-first",
+      title: "First task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+      createdAt: "2026-03-18T00:00:00.000Z",
+    });
+    first.updatedAt = "2026-03-18T00:00:01.000Z";
+
+    const second = createBridgeTask({
+      threadId: "thr-second",
+      title: "Second task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+      createdAt: "2026-03-18T00:00:00.000Z",
+    });
+    second.updatedAt = "2026-03-18T00:00:02.000Z";
+    second.feishuBinding = {
+      chatId: "oc_chat",
+      threadKey: "omt_thread",
+    };
+
+    const snapshot = {
+      ...createEmptySnapshot(),
+      connection: "connected" as const,
+      tasks: [second],
+      lastUpdatedAt: "2026-03-18T00:00:03.000Z",
+    };
+
+    const state = buildMonitorState(snapshot, first.taskId, {
+      autoSelectFirstTask: false,
+    });
+    assert.equal(state.selectedTaskId, undefined);
+    assert.equal(state.selectedTask, null);
+    assert.equal(state.tasks[0]?.isSelected, false);
   });
 
   it("serializes task source badges and feishu sync state for the monitor view", () => {
