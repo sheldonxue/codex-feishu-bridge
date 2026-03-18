@@ -858,6 +858,9 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
           case "select-task":
             vscode.postMessage({ type: "select-task", taskId: target.dataset.taskId });
             return;
+          case "import-recent-threads":
+            vscode.postMessage({ type: "import-recent-threads" });
+            return;
           case "refresh":
             vscode.postMessage({ type: "refresh" });
             return;
