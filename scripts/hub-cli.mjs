@@ -4,9 +4,13 @@ import { randomUUID } from "node:crypto";
 import { readFile, mkdir, rm, stat, writeFile, appendFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const HUB_VERSION = 1;
-const DEFAULT_HUB_ROOT = process.env.CODEX_FEISHU_BRIDGE_HUB_ROOT ?? "/home/dungloi/Workspaces/codex-feishu-bridge-hub";
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+const DEFAULT_HUB_ROOT =
+  process.env.CODEX_FEISHU_BRIDGE_HUB_ROOT ?? path.resolve(REPO_ROOT, "..", `${path.basename(REPO_ROOT)}-hub`);
 const DEFAULT_LOCK_STALE_MS = 30_000;
 const LOCK_RETRY_MS = 50;
 const LOCK_MAX_ATTEMPTS = 200;

@@ -1,83 +1,64 @@
 # codex-feishu-bridge
 
-CLI-first Codex, VSCode, and Feishu bridge for multi-device task monitoring and control.
+`codex-feishu-bridge` is a CLI-first bridge that connects Codex tasks to a desktop VSCode surface and a mobile Feishu surface.
+It is designed for developers who want to start, inspect, and control Codex work from multiple devices without making the editor plugin the runtime authority.
 
-## Product Shape
+## Overview
 
-This repository is built around three surfaces:
+The repository is built around three product surfaces:
 
-- `Codex CLI + codex app-server` as the real task runtime and auth surface
-- `VSCode extension` as the desktop UI for tasks, diffs, approvals, and image inputs
-- `Feishu` as the mobile multi-task thread interface
+- `Codex CLI + codex app-server` as the real task runtime and auth layer
+- `VSCode extension` as the desktop UI for task lists, diffs, approvals, and uploads
+- `Feishu` as the mobile conversation and control surface
 
-The OpenAI VSCode extension is not the runtime authority for this project.
+The OpenAI VSCode extension is not required as the runtime authority for this project.
 
-## Current State
+## Highlights
 
-- Docker is the default environment for Node and TypeScript work.
-- The monorepo is organized with `npm workspaces`.
-- The architecture is locked to a CLI-first runtime.
-- The bridge daemon, VSCode frontend, Feishu bridge, manual import flow, and recovery hardening are implemented in the local development path.
-- `docs/plan.md` is the only execution-plan source for the repository.
-- The selected live-validation path is complete for `runtime`, `desktop`, and `feishu`.
-- Feishu threads now run in pure-conversation mode with card-first task creation, long-connection card actions, and no background status-summary push.
+- CLI-first runtime with `codex app-server`
+- Docker-first TypeScript development workflow
+- VSCode task tree, detail panel, diff view, approvals, and image upload
+- Feishu long-connection bridge with pure-thread conversations
+- Card-first Feishu task creation and control
+- Manual import and resume support for existing Codex threads
 
-## Closeout Summary
+## Repository Layout
 
-- Runtime live validation is complete on the authoritative `stdio` daemon at `http://127.0.0.1:8891`, including:
-  - real `thread/start`
-  - real `turn/start`
-  - immediate `turn/steer`
-  - immediate `turn/interrupt`
-  - approval accept flow
-  - structured diff recovery for the affected real path
-- Desktop live validation is complete for the selected closeout path, including:
-  - task tree
-  - detail panel
-  - diff opening
-  - approval resolution
-  - image upload
-  - bounded post-fix diff recheck on `8891`
-- Feishu live validation is complete for the selected closeout path, using the official SDK long-connection client:
-  - ingress delivery
-  - thread continuity
-  - `interrupt`, `retry`, `cancel`, `approve`, and `decline`
-- QA's final gate for this round is `conditional go`.
+- `apps/bridge-daemon`: runtime bridge, HTTP/WebSocket server, Feishu integration
+- `apps/vscode-extension`: desktop task UI and commands
+- `packages/protocol`: shared task, event, approval, and transport contracts
+- `packages/shared`: config and filesystem helpers
+- `docker/`: development image, compose file, bootstrap scripts
+- `docs/`: public product and architecture notes
 
-The `conditional go` caveats are non-gating for the selected path:
+## Public Docs
 
-- runtime manual import and resume were not re-proven as separate real-stdio closeout slices
-- desktop `login` and `retry` were not retained as standalone final live-evidence slices
-- Feishu webhook/public-callback compatibility was not the selected live path in this round
+- [docs/prd.md](./docs/prd.md)
+- [docs/architecture.md](./docs/architecture.md)
 
 ## Quick Start
 
-1. Copy `docker/.env.example` to `docker/.env` and fill the runtime values you want to use.
+1. Copy `docker/.env.example` to `docker/.env` and fill the values you want to use.
 2. Start the development container:
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env.example up -d workspace-dev
 ```
 
-3. Enter the development container:
+3. Enter the container and install dependencies:
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env.example exec workspace-dev bash
-```
-
-4. Install workspace dependencies inside the container:
-
-```bash
 npm install
 ```
 
-5. Start the bridge runtime container when working on daemon features:
+4. Start the bridge runtime:
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env.example up -d bridge-runtime
 ```
 
-6. Build and test the implemented slices inside Docker:
+5. Build and test the main packages:
 
 ```bash
 npm run build:daemon
@@ -87,177 +68,98 @@ npm run test:extension
 ```
 
 For real `stdio` and Feishu runs, prefer calling `docker compose` directly with `--env-file docker/.env`.
-The helper npm scripts in `package.json` keep using `docker/.env.example` as the default mock/dev baseline.
 
-7. Use the bridge CLI wrapper from the development container:
+## Runtime and Validation
 
-```bash
-BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run bridge:cli -- list
-BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run bridge:cli -- import
-BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run bridge:cli -- resume <task-id>
-```
-
-8. Run the read-only live runtime probe inside the development container:
+To run against a real host Codex login and binary, provide these environment variables in `docker/.env`:
 
 ```bash
-npm run validate:runtime:container
+HOST_CODEX_HOME=/home/you/.codex
+HOST_CODEX_BIN_DIR=/path/to/codex-package
+BRIDGE_CODEX_HOME=/codex-home
+CODEX_RUNTIME_BACKEND=stdio
+CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js
 ```
 
-9. Load `apps/vscode-extension` in VSCode to use the desktop task view and commands.
-
-## Shared Hub Workflow (Archived)
-
-This workflow was used during the historical multi-agent closeout and is not required for normal bridge usage now.
-The live sibling hub directory was removed from the current local environment, but the commands remain here for archival reference.
-
-If you intentionally recreate that workflow, use the shared hub when multiple Codex CLI agents are running in separate worktrees:
-
-1. Initialize the sibling hub once:
-
-```bash
-npm run hub:init
-```
-
-2. Check hub health and current thread status:
-
-```bash
-npm run hub:doctor
-npm run hub:status
-```
-
-3. Read one agent inbox view directly:
-
-```bash
-npm run hub:read -- --agent feishu-agent
-```
-
-4. Send a direct handoff:
-
-```bash
-npm run hub:post -- --from coordinator-agent --to feishu-agent --kind handoff --summary "Validate live webhook flow" --body "Use the real callback URL and report blocked conditions."
-```
-
-5. Send a whole-team broadcast:
-
-```bash
-npm run hub:broadcast -- --from coordinator-agent --summary "Hub cutover is active" --body "Read your inbox view before resuming work."
-```
-
-6. Acknowledge and close a thread:
-
-```bash
-node scripts/hub-cli.mjs ack --agent feishu-agent --thread <thread-id> --summary "Accepted"
-node scripts/hub-cli.mjs done --agent feishu-agent --thread <thread-id> --summary "Completed"
-```
-
-The default hub path is `/home/dungloi/Workspaces/codex-feishu-bridge-hub`.
-Override it with `CODEX_FEISHU_BRIDGE_HUB_ROOT` when needed.
-
-## Live Validation Workflow
-
-Use this sequence when you want to reproduce the selected live-validation path:
-
-1. Start `bridge-runtime` with `CODEX_RUNTIME_BACKEND=stdio`.
-2. If you want Docker to reuse a real host login state and host `codex` binary, set:
-
-```bash
-export HOST_CODEX_HOME=/home/you/.codex
-export HOST_CODEX_BIN_DIR=/path/to/codex-bin-dir
-export BRIDGE_CODEX_HOME=/codex-home
-export CODEX_APP_SERVER_BIN=/opt/host-codex-bin/codex
-export CODEX_RUNTIME_BACKEND=stdio
-```
-
-3. Start the runtime container with those overrides in scope:
+Then start the runtime and verify the auth endpoints:
 
 ```bash
 docker compose -f docker/compose.yaml --env-file docker/.env up -d bridge-runtime
-```
-
-4. Verify auth endpoints before creating tasks:
-
-```bash
 curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/auth/account
 curl http://127.0.0.1:8787/auth/rate-limits
 ```
 
-5. Run the read-only runtime helper:
+You can also run the runtime helper:
 
 ```bash
 npm run validate:runtime
 ```
 
-6. If you want a no-prompt thread creation and resume check, run:
+Inside `workspace-dev`, use:
 
 ```bash
-npm run validate:runtime -- --create-thread --workspace-root /workspace/codex-feishu-bridge
+BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime:container
 ```
 
-If you are running inside `workspace-dev`, use `BRIDGE_BASE_URL=http://bridge-runtime:8787` or the shortcut:
+## VSCode Usage
 
-```bash
-npm run validate:runtime:container
-BRIDGE_BASE_URL=http://bridge-runtime:8787 npm run validate:runtime -- --create-thread --workspace-root /workspace/codex-feishu-bridge
-```
-
-7. Build the extension and launch the Extension Development Host:
+Build the extension:
 
 ```bash
 npm run build:extension
 ```
 
-Then open the repository in VSCode and run the `Codex Feishu Bridge Extension` launch target from [.vscode/launch.json](/home/dungloi/Workspaces/codex-feishu-bridge/.vscode/launch.json).
+Then open the repository in VSCode and run the `Codex Feishu Bridge Extension` launch target from [`.vscode/launch.json`](./.vscode/launch.json).
 
-8. In the Extension Development Host:
-- open the `Codex Bridge Tasks` view in Explorer
-- run `Codex Bridge: Refresh Tasks`
-- run `Codex Bridge: Open Status`
-- create or resume a task and verify task state, diffs, approvals, and uploads against the daemon
+The extension provides:
 
-9. For Feishu live validation, prefer the official SDK long-connection path.
-Set `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and either `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME`, then let `bridge-daemon` start the long-connection client automatically at startup.
+- task tree
+- task detail view
+- diff opening
+- status view
+- desktop approval handling
+- image upload
 
-The current mobile workflow is:
+## Feishu Usage
 
-- start a new Feishu topic/thread
-- send the first plain-text message for the task you want to run
-- let `bridge-daemon` turn that text into a draft prompt and reply with a configuration card
-- use the card to choose model, reasoning effort, sandbox, and approval policy
-- press `Create Task`
-- continue the task with plain text in the same thread
-- use the task control card for status, interrupt, retry, approvals, inspect, and unbind actions
-- keep slash commands only as a compatibility fallback when card interaction is unavailable
+The recommended mobile path is the official SDK long-connection client.
 
-If you only know the group name, you can inspect or resolve visible chats with:
+Set:
+
+- `FEISHU_APP_ID`
+- `FEISHU_APP_SECRET`
+- either `FEISHU_DEFAULT_CHAT_ID` or `FEISHU_DEFAULT_CHAT_NAME`
+
+If only the group name is known, resolve visible chats with:
 
 ```bash
 npm run feishu:resolve-chat -- --list
 npm run feishu:resolve-chat -- --name "Your Feishu Group Name"
 ```
 
-When `FEISHU_DEFAULT_CHAT_NAME` is present, `bridge-daemon` resolves the exact chat automatically at startup before enabling the Feishu bridge.
+When `FEISHU_DEFAULT_CHAT_NAME` is present, `bridge-daemon` resolves the exact chat automatically at startup.
 
-Use `/feishu/webhook` only as a compatibility path when you intentionally keep webhook credentials configured.
+The current Feishu workflow is:
 
-## Multi-Agent Restart Workflow
+1. Start a new Feishu topic or thread.
+2. Send the first plain-text message describing the task.
+3. Let `bridge-daemon` create or refresh a draft and reply with a configuration card.
+4. Use the card to choose model, reasoning effort, sandbox, and approval policy.
+5. Press `Create Task`.
+6. Continue the task with plain text in the same thread.
+7. Use the control card for status, interrupt, retry, approvals, inspect, and unbind actions.
 
-After hub cutover, restart the five worktree agents and reopen the same conversation state:
+The mobile thread stays clean:
 
-```bash
-cd /home/dungloi/Workspaces/codex-feishu-bridge-coordinator && codex -a never -s workspace-write resume --last
-cd /home/dungloi/Workspaces/codex-feishu-bridge-runtime && codex -a never -s danger-full-access resume --last
-cd /home/dungloi/Workspaces/codex-feishu-bridge-feishu && codex -a never -s danger-full-access resume --last
-cd /home/dungloi/Workspaces/codex-feishu-bridge-desktop && codex -a never -s workspace-write resume --last
-cd /home/dungloi/Workspaces/codex-feishu-bridge-qa && codex -a never -s workspace-write resume --last
-```
+- configuration cards
+- control cards
+- final agent replies
+- approvals
+- explicit errors
+- necessary command results
 
-After restart, each agent should:
-
-1. Read `AGENTS.md`
-2. Read the repo docs in the normal order
-3. Read `/home/dungloi/Workspaces/codex-feishu-bridge-hub/views/<agent>.md`
-4. Use the hub CLI for all dynamic handoffs and blocked states
+Slash commands remain available as compatibility fallbacks, but card interaction is the recommended flow.
 
 ## Runtime Notes
 

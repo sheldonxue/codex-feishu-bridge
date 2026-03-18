@@ -36,14 +36,7 @@
 
 - 一个工作群作为入口
 - 每个 bridge task 绑定一个 Feishu 线程或回复链
-- 负责展示步骤、摘要、diff 摘要、审批和控制命令
-
-### Shared Agent Hub
-
-- 仓库外 sibling 目录 `/home/dungloi/Workspaces/codex-feishu-bridge-hub`
-- 负责多 worktree agent 之间的动态 handoff、blocked、ack、done 和 broadcast
-- `jsonl` 文件是机器真源，`views/*.md` 是 agent 直接阅读的人类友好镜像
-- 只承载实时协作，不替代 repo 内的稳定状态文档
+- 负责移动端对话、审批和控制命令
 
 ## 目录结构
 
@@ -54,14 +47,6 @@
 - `docker/`: runtime image, compose, env templates
 - `docs/`: product, architecture, plan, status, logs, lessons, and agent manual
 - `.agent/`: templates and checkpoints for long-running agent work
-
-## 多 agent 通信模型
-
-- `docs/worktree-agents.md` 是静态协议真源
-- shared hub 是动态交接真源
-- branch-local worktree 文件不再承担实时消息总线职责
-- `coordinator-agent` 通过 hub 发起 broadcast 和 direct handoff
-- worker agents 每轮开始前先读自己的 hub view，再继续实现工作
 
 ## 任务与线程模型
 
@@ -127,21 +112,11 @@
 - 根脚本 `scripts/bridge-cli.mjs` 提供 `list`、`import`、`resume`、`send`
 - 在 `workspace-dev` 容器里使用时，daemon 地址默认应设为 `BRIDGE_BASE_URL=http://bridge-runtime:8787`
 
-## Shared Hub CLI
+## Optional Coordination Utilities
 
-- 根脚本 `scripts/hub-cli.mjs` 提供 `init`、`post`、`broadcast`、`read`、`ack`、`done`、`status`、`doctor`、`render`
-- 默认 hub 目录是 `/home/dungloi/Workspaces/codex-feishu-bridge-hub`
-- `CODEX_FEISHU_BRIDGE_HUB_ROOT` 可覆盖默认 hub 路径
-- `CODEX_HUB_AGENT` 可在 `read`、`ack`、`done` 中作为默认 agent 身份
-
-## Shared Hub File Contracts
-
-- `broadcast.jsonl`: 全局广播真源
-- `mailbox/<agent>.jsonl`: 单 agent 可见线程事件真源
-- `views/<agent>.md`: agent 直接阅读的 inbox 镜像
-- `views/broadcast.md`: operator 和 coordinator 阅读的广播视图
-- `config.json`: hub 版本、agent 集合、默认路径
-- `artifacts/`: 交接附件引用目录
+- 根脚本 `scripts/hub-cli.mjs` 提供一个本地多-agent 协调工具集
+- 默认 hub 目录可由 `CODEX_FEISHU_BRIDGE_HUB_ROOT` 覆盖
+- 这些工具不是 bridge 运行时的必需部分，也不是公开产品主路径
 
 ## 容器规范
 
@@ -149,7 +124,7 @@
 - Devcontainer default workspace stays `/workspace/codex-feishu-bridge`
 - `bridge-runtime` mounts a shared Codex home path and an uploads directory
 - `bridge-runtime` can also mount `${HOST_CODEX_HOME}` to `/codex-home` and `${HOST_CODEX_BIN_DIR}` to `/opt/host-codex-bin`
-- Live `stdio` validation should set `BRIDGE_CODEX_HOME=/codex-home`, `CODEX_RUNTIME_BACKEND=stdio`, and `CODEX_APP_SERVER_BIN=/opt/host-codex-bin/codex`
+- Live `stdio` validation should set `BRIDGE_CODEX_HOME=/codex-home`, `CODEX_RUNTIME_BACKEND=stdio`, and `CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js`
 - Host-native Node and TypeScript are optional; container is the default path
 
 ## 代码规范
@@ -157,5 +132,4 @@
 - 默认使用 ASCII
 - 包名统一使用 `@codex-feishu-bridge/*`
 - 公共接口变更同步更新本文档
-- 重要决策同步记录到 `docs/log.md`
 - 不把 OpenAI VSCode 扩展私有实现重新引入主路径

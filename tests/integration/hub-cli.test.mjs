@@ -4,10 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { describe, it, beforeEach, afterEach } from "node:test";
 
 const execFileAsync = promisify(execFile);
-const repoRoot = "/home/dungloi/Workspaces/codex-feishu-bridge";
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const scriptPath = path.join(repoRoot, "scripts", "hub-cli.mjs");
 
 let tempRoot;
@@ -79,7 +80,7 @@ describe("hub-cli", () => {
       "--body-file",
       bodyFile,
       "--ref",
-      "/home/dungloi/Workspaces/codex-feishu-bridge/docs/plan.md",
+      path.join(repoRoot, "docs", "architecture.md"),
     ], { hubRoot });
 
     const record = JSON.parse(stdout);

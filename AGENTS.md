@@ -10,34 +10,26 @@ Agents must preserve a resumable project memory and keep implementation slices i
 
 Before changing code or docs, agents must read these files in order:
 
-1. `docs/status.md`
-2. `docs/plan.md`
-3. `docs/log.md`
-4. `docs/architecture.md`
-5. `docs/agents.md`
-6. `docs/worktree-agents.md` when the task is part of a multi-agent or multi-worktree effort
-7. `/home/dungloi/Workspaces/codex-feishu-bridge-hub/views/<agent>.md` when the task is part of the shared-hub workflow
+1. `README.md`
+2. `docs/prd.md`
+3. `docs/architecture.md`
+4. local-only process docs when they are present and the task explicitly depends on them
 
 ## Working Rules
 
 - Docker is the only default development environment for Node and TypeScript work.
 - Do not reintroduce the OpenAI VSCode extension as the primary runtime dependency.
 - Keep the monorepo layout stable: `apps/`, `packages/`, `docker/`, `docs/`, `.agent/`.
-- Treat `docs/log.md` and `docs/lessons.md` as append-only project memory.
-- Update `docs/status.md` whenever the implementation state changes materially.
-- Record architecture decisions in both `docs/architecture.md` and `docs/log.md`.
+- Record public architecture decisions in `docs/architecture.md`.
 - Prefer deleting weak or misleading compatibility paths over keeping them alive.
-- In multi-agent mode, use `docs/worktree-agents.md` as the static coordination source of truth for ownership and startup rules.
-- In multi-agent mode, use `/home/dungloi/Workspaces/codex-feishu-bridge-hub` as the live message bus for handoffs, blockers, acknowledgements, and done signals.
+- Keep public repository docs suitable for open-source readers by default.
 
 ## Documentation Update Policy
 
-- `docs/status.md`: overwrite the current snapshot, keep the heading structure stable.
-- `docs/plan.md`: update phases, milestones, and next work when scope changes.
-- `docs/log.md`: append dated entries only.
-- `docs/lessons.md`: append dated lessons only.
-- `docs/agents.md`: keep operational instructions current for future agents.
-- `docs/worktree-agents.md`: keep ownership, shared-hub workflow, and bootstrap prompts current for multi-agent work.
+- `README.md`: public project description, quick start, and user-facing workflow
+- `docs/prd.md`: public product scope and non-goals
+- `docs/architecture.md`: public system structure and interfaces
+- local-only process docs may exist under `docs/`, but do not rely on them for public-facing changes unless the task explicitly targets internal workflow
 
 ## Commit Policy
 
