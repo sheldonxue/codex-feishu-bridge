@@ -157,11 +157,14 @@ function selectStatic(params: {
     text: plainText(option.label),
     value: option.value,
   }));
+  const initialOptionObject = serializedOptions.find((option) => option.value === (params.initialOption ?? ""));
 
   return {
     tag: "select_static",
     placeholder: plainText(params.placeholder),
-    ...(params.initialOption ? { initial_option: params.initialOption } : {}),
+    ...(params.initialOption !== undefined
+      ? { initial_option: initialOptionObject ?? params.initialOption }
+      : {}),
     // Some Feishu clients and SDK references disagree on whether the field is
     // `option` or `options`. Emit both so mobile clients always receive the
     // candidate list.
@@ -208,6 +211,18 @@ function formatExecutionProfile(profile: TaskExecutionProfile | undefined): stri
     `sandbox: ${profile?.sandbox ?? DEFAULT_NEW_SANDBOX}`,
     `approvalPolicy: ${profile?.approvalPolicy ?? DEFAULT_NEW_APPROVAL_POLICY}`,
   ];
+}
+
+function resolveOptionLabel(
+  options: Array<{ label: string; value: string }>,
+  value: string | undefined,
+  fallbackLabel: string,
+): string {
+  if (value === undefined) {
+    return fallbackLabel;
+  }
+
+  return options.find((option) => option.value === value)?.label ?? value;
 }
 
 function formatFeishuRunningMessageMode(mode: FeishuRunningMessageMode): string {
@@ -462,6 +477,8 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
       value: effort,
     }))),
   ];
+  const currentModelLabel = resolveOptionLabel(modelOptions, selectedModel ?? "", "runtime-default");
+  const currentEffortLabel = resolveOptionLabel(effortOptions, selectedEffort ?? "", "model-default");
 
   return {
     config: {
@@ -501,11 +518,20 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           `pending approvals: ${task.pendingApprovals.filter((approval) => approval.state === "pending").length}`,
         ].join("\n"),
       ),
+      divider(),
+      markdown(
+        [
+          "**Current Run Settings**",
+          `model: ${currentModelLabel}`,
+          `reasoning: ${currentEffortLabel}`,
+          `plan mode: ${task.executionProfile.planMode ? "on" : "off"}`,
+        ].join("\n"),
+      ),
       ...(note ? [divider(), markdown(`**Latest Update**\n${note}`)] : []),
       divider(),
       action([
         selectStatic({
-          placeholder: "Choose model",
+          placeholder: `Model: ${currentModelLabel}`,
           initialOption: selectedModel,
           options: modelOptions,
           value: baseActionValue("task.select.model", binding, {
@@ -514,7 +540,7 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           }),
         }),
         selectStatic({
-          placeholder: "Choose reasoning effort",
+          placeholder: `Reasoning: ${currentEffortLabel}`,
           initialOption: selectedEffort,
           options: effortOptions,
           value: baseActionValue("task.select.effort", binding, {

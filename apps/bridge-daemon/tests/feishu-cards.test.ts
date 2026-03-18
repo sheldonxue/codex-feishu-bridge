@@ -145,6 +145,12 @@ describe("feishu card builders", () => {
     assert.match(draftJson, /Latest Update/);
 
     assert.match(taskJson, /How this thread works/);
+    assert.match(taskJson, /Current Run Settings/);
+    assert.match(taskJson, /model: runtime-default/);
+    assert.match(taskJson, /reasoning: model-default/);
+    assert.match(taskJson, /plan mode: off/);
+    assert.match(taskJson, /Model: runtime-default/);
+    assert.match(taskJson, /Reasoning: model-default/);
     assert.match(taskJson, /Plan Mode: Off/);
     assert.match(taskJson, /While Running: Queue Next Turn/);
     assert.match(taskJson, /Run Controls/);
@@ -192,6 +198,46 @@ describe("feishu card builders", () => {
     assert.match(json, /already created on the workstation/);
     assert.match(json, /send the first plain-text message in this thread to start the first turn/i);
     assert.match(json, /Create on Host only appears on the draft card before the task exists/);
+  });
+
+  it("shows explicit model, reasoning, and plan mode details on the first bound task card", () => {
+    const task = createBridgeTask({
+      threadId: "thr-configured-task",
+      title: "Configured task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+      executionProfile: {
+        model: "gpt-5.4",
+        effort: "high",
+        planMode: true,
+        sandbox: "workspace-write",
+        approvalPolicy: "on-request",
+      },
+    });
+
+    const taskCard = createTaskControlCard({
+      task,
+      binding: BINDING,
+      revision: 1,
+      modelOptions: [
+        {
+          id: "gpt-5.4",
+          displayName: "GPT-5.4",
+          isDefault: true,
+          supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+          defaultReasoningEffort: "medium",
+        },
+      ],
+    });
+
+    const json = JSON.stringify(taskCard);
+    assert.match(json, /Current Run Settings/);
+    assert.match(json, /model: gpt-5\.4 \(default\)/);
+    assert.match(json, /reasoning: high/);
+    assert.match(json, /plan mode: on/);
+    assert.match(json, /Model: gpt-5\.4 \(default\)/);
+    assert.match(json, /Reasoning: high/);
+    assert.match(json, /Plan Mode: On/);
   });
 
   it("renders a read-only status snapshot card for mobile status checks", () => {
