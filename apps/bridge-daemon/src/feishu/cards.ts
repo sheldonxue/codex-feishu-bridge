@@ -213,7 +213,7 @@ function buildApprovalActionRows(task: BridgeTask, binding: FeishuThreadBinding,
       return [
         markdown(
           [
-            `**Approval required**`,
+            `**Pending Approval**`,
             `requestId: ${approval.requestId}`,
             `kind: ${approval.kind}`,
             `reason: ${approval.reason}`,
@@ -231,7 +231,7 @@ function buildApprovalActionRows(task: BridgeTask, binding: FeishuThreadBinding,
             value: baseActionValue("task.decline", binding, { ...value }),
           }),
           button({
-            text: "Cancel",
+            text: "Cancel Approval",
             value: baseActionValue("task.cancel-approval", binding, { ...value }),
           }),
         ]),
@@ -291,20 +291,34 @@ export function createDraftCard(data: FeishuThreadDraftCardData): FeishuInteract
       template: "blue",
     },
     elements: [
-      markdown(`**Prompt**\n${data.prompt?.trim() ? data.prompt : "_Send plain text in this thread to set the prompt._"}`),
-      markdown(formatExecutionProfile({
-        model: data.model,
-        effort: data.effort,
-        sandbox: data.sandbox,
-        approvalPolicy: data.approvalPolicy,
-      }).join("\n")),
-      ...(note ? [divider(), markdown(`**Info**\n${note}`)] : []),
+      markdown(
+        [
+          "**How this thread works**",
+          "- plain text in this Feishu thread updates the draft prompt",
+          "- press Create on Host to create the real Codex task on the workstation",
+          "- after binding, later plain text in this thread continues the same host task",
+        ].join("\n"),
+      ),
+      divider(),
+      markdown(`**Draft Prompt**\n${data.prompt?.trim() ? data.prompt : "_Send plain text in this thread to set the prompt._"}`),
+      markdown(
+        [
+          "**Current Settings**",
+          ...formatExecutionProfile({
+            model: data.model,
+            effort: data.effort,
+            sandbox: data.sandbox,
+            approvalPolicy: data.approvalPolicy,
+          }),
+        ].join("\n"),
+      ),
+      ...(note ? [divider(), markdown(`**Latest Update**\n${note}`)] : []),
       divider(),
       ...(modelOptions.length
         ? [
             action([
               selectStatic({
-                placeholder: "Model",
+                placeholder: "Choose model",
                 initialOption: selectedModel,
                 options: modelOptions,
                 value: baseActionValue("draft.select.model", data.binding, {
@@ -312,7 +326,7 @@ export function createDraftCard(data: FeishuThreadDraftCardData): FeishuInteract
                 }),
               }),
               selectStatic({
-                placeholder: "Reasoning effort",
+                placeholder: "Choose reasoning effort",
                 initialOption: selectedEffort,
                 options: effortOptions,
                 value: baseActionValue("draft.select.effort", data.binding, {
@@ -324,7 +338,7 @@ export function createDraftCard(data: FeishuThreadDraftCardData): FeishuInteract
         : []),
       action([
         selectStatic({
-          placeholder: "Sandbox",
+          placeholder: "Choose sandbox",
           initialOption: data.sandbox,
           options: [
             { label: "read-only", value: "read-only" },
@@ -336,7 +350,7 @@ export function createDraftCard(data: FeishuThreadDraftCardData): FeishuInteract
           }),
         }),
         selectStatic({
-          placeholder: "Approval policy",
+          placeholder: "Choose approval policy",
           initialOption: data.approvalPolicy,
           options: [
             { label: "untrusted", value: "untrusted" },
@@ -351,20 +365,20 @@ export function createDraftCard(data: FeishuThreadDraftCardData): FeishuInteract
       ]),
       action([
         button({
-          text: "Use Defaults",
+          text: "Reset to Defaults",
           value: baseActionValue("draft.use-defaults", data.binding, {
             revision: data.revision,
           }),
         }),
         button({
-          text: "Create Task",
+          text: "Create on Host",
           type: "primary",
           value: baseActionValue("draft.create", data.binding, {
             revision: data.revision,
           }),
         }),
         button({
-          text: "Cancel",
+          text: "Discard Draft",
           type: "danger",
           value: baseActionValue("draft.cancel", data.binding, {
             revision: data.revision,
@@ -391,26 +405,36 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
     elements: [
       markdown(
         [
-          `**taskId**: ${task.taskId}`,
-          `**status**: ${task.status}`,
-          ...formatExecutionProfile(task.executionProfile),
-          `**messages**: ${task.conversation.length}`,
-          `**pending approvals**: ${task.pendingApprovals.filter((approval) => approval.state === "pending").length}`,
+          "**How this thread works**",
+          "- plain text in this Feishu thread is forwarded into the same host Codex task",
+          "- agent replies, approvals, and task notes are returned to this thread",
+          "- use Unbind Thread if you want to detach Feishu without deleting the host task",
         ].join("\n"),
       ),
-      ...(note ? [divider(), markdown(`**Info**\n${note}`)] : []),
+      divider(),
+      markdown(
+        [
+          `**Current Task**`,
+          `taskId: ${task.taskId}`,
+          `status: ${task.status}`,
+          ...formatExecutionProfile(task.executionProfile),
+          `messages: ${task.conversation.length}`,
+          `pending approvals: ${task.pendingApprovals.filter((approval) => approval.state === "pending").length}`,
+        ].join("\n"),
+      ),
+      ...(note ? [divider(), markdown(`**Latest Update**\n${note}`)] : []),
       ...buildApprovalActionRows(task, binding, revision),
       divider(),
       action([
         button({
-          text: "Status",
+          text: "View Status",
           value: baseActionValue("task.status", binding, {
             taskId: task.taskId,
             revision,
           }),
         }),
         button({
-          text: "Interrupt",
+          text: "Stop Turn",
           type: "danger",
           value: baseActionValue("task.interrupt", binding, {
             taskId: task.taskId,
@@ -418,7 +442,7 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           }),
         }),
         button({
-          text: "Retry",
+          text: "Retry Last Turn",
           type: "primary",
           value: baseActionValue("task.retry", binding, {
             taskId: task.taskId,
@@ -426,7 +450,7 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           }),
         }),
         button({
-          text: "Unbind",
+          text: "Unbind Thread",
           value: baseActionValue("task.unbind", binding, {
             taskId: task.taskId,
             revision,
@@ -435,13 +459,13 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
       ]),
       action([
         overflow({
-          text: "Inspect",
+          text: "More",
           options: [
-            { label: "Task", value: "task" },
-            { label: "Tasks", value: "tasks" },
-            { label: "Health", value: "health" },
+            { label: "Current Task", value: "task" },
+            { label: "All Tasks", value: "tasks" },
+            { label: "Bridge Health", value: "health" },
             { label: "Account", value: "account" },
-            { label: "Limits", value: "limits" },
+            { label: "Rate Limits", value: "limits" },
           ],
           value: baseActionValue("task.inspect.global", binding, {
             taskId: task.taskId,
