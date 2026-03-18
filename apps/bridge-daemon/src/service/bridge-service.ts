@@ -2172,6 +2172,10 @@ export class BridgeService {
       return false;
     }
 
+    if (task.conversation.length === 0) {
+      return true;
+    }
+
     if (task.updatedAt !== nextUpdatedAt) {
       return true;
     }
@@ -2438,13 +2442,20 @@ conn.close()
     }
 
     const codexHomeRoot = path.resolve(this.options.config.codexHome);
+    const hostCodexHome = process.env.HOST_CODEX_HOME?.trim() ? path.resolve(process.env.HOST_CODEX_HOME) : null;
     if (targetPath.startsWith("/codex-home/")) {
       return path.join(codexHomeRoot, targetPath.slice("/codex-home/".length));
     }
 
     if (path.isAbsolute(targetPath)) {
       const resolved = path.resolve(targetPath);
-      return resolved === codexHomeRoot || resolved.startsWith(`${codexHomeRoot}${path.sep}`) ? resolved : null;
+      if (resolved === codexHomeRoot || resolved.startsWith(`${codexHomeRoot}${path.sep}`)) {
+        return resolved;
+      }
+      if (hostCodexHome && (resolved === hostCodexHome || resolved.startsWith(`${hostCodexHome}${path.sep}`))) {
+        return path.join(codexHomeRoot, path.relative(hostCodexHome, resolved));
+      }
+      return null;
     }
 
     return path.join(codexHomeRoot, targetPath);

@@ -25,6 +25,7 @@ x-dev-base: &dev-base
     CODEX_RUNTIME_PROXY_SOCKET: ${CODEX_RUNTIME_PROXY_SOCKET:-/workspace/codex-feishu-bridge/.tmp/codex-runtime-proxy.sock}
     CODEX_APP_SERVER_BIN: ${CODEX_APP_SERVER_BIN:-codex}
     CODEX_APP_SERVER_ARGS: ${CODEX_APP_SERVER_ARGS:-app-server}
+    HOST_CODEX_HOME: ${HOST_CODEX_HOME:-}
     PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     MOCK_AUTO_COMPLETE_LOGIN: ${MOCK_AUTO_COMPLETE_LOGIN:-true}
     FEISHU_BASE_URL: ${FEISHU_BASE_URL:-https://open.feishu.cn}

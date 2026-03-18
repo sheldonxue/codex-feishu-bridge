@@ -1168,6 +1168,91 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("backfills empty imported conversations from host absolute rollout paths during sync", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-host-rollout-path-backfill-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-host-absolute-backfill.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+    await writeFile(
+      rolloutDiskPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:01.000Z",
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Backfilled question",
+            local_images: [],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:02.000Z",
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: "Backfilled answer",
+            phase: "final",
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const fakeHostCodexHome = "/virtual/host/.codex";
+    writeThreadStateRow(config, {
+      threadId: "thread-host-absolute-backfill",
+      rolloutPath: `${fakeHostCodexHome}/${rolloutRelativePath}`,
+    });
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-host-absolute-backfill",
+        name: "Host absolute rollout path thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const originalHostCodexHome = process.env.HOST_CODEX_HOME;
+
+    try {
+      delete process.env.HOST_CODEX_HOME;
+      const imported = await service.importRecentRuntimeThreads(1);
+      assert.equal(imported.length, 1);
+      assert.deepEqual(imported[0].conversation, []);
+
+      process.env.HOST_CODEX_HOME = fakeHostCodexHome;
+      const refreshed = await service.syncRuntimeThreads();
+      const refreshedTask = refreshed.find((task) => task.taskId === "thread-host-absolute-backfill");
+      assert.deepEqual(
+        refreshedTask?.conversation.map((entry) => entry.content),
+        ["Backfilled question", "Backfilled answer"],
+      );
+      assert.equal(refreshedTask?.latestSummary, "Backfilled answer");
+      assert.equal(refreshedTask?.updatedAt, "2026-03-19T00:00:02.000Z");
+    } finally {
+      if (originalHostCodexHome === undefined) {
+        delete process.env.HOST_CODEX_HOME;
+      } else {
+        process.env.HOST_CODEX_HOME = originalHostCodexHome;
+      }
+      await service.dispose();
+      await runtime.dispose();
+    }
+  });
+
   it("resumes imported host threads before sending the first new message", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
