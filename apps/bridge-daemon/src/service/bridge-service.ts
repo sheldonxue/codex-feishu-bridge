@@ -49,7 +49,6 @@ const ACTIVE_TURN_START_TIMEOUT_MS = 8_000;
 const ACTIVE_TURN_RETRY_INTERVAL_MS = 250;
 const AGGREGATED_DIFF_PATH = "__aggregated_diff__";
 const AGENT_DIFF_SUMMARY = "Extracted from agent diff block";
-const IMPORTED_CONVERSATION_MESSAGE_LIMIT = 20;
 
 interface PersistedState {
   seq: number;
@@ -1745,9 +1744,6 @@ export class BridgeService {
           continue;
         }
         messages.push(message);
-        if (messages.length > IMPORTED_CONVERSATION_MESSAGE_LIMIT) {
-          messages.shift();
-        }
       }
     } finally {
       lines.close();

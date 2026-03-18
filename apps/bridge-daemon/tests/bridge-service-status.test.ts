@@ -432,6 +432,86 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("imports the full rollout conversation instead of truncating to the latest 20 messages", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-import-full-history-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-import-full-history.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+
+    const rolloutLines: string[] = [];
+    for (let index = 0; index < 30; index += 1) {
+      const userTimestamp = `2026-03-19T00:00:${String(index * 2).padStart(2, "0")}.000Z`;
+      const agentTimestamp = `2026-03-19T00:00:${String(index * 2 + 1).padStart(2, "0")}.000Z`;
+      rolloutLines.push(
+        JSON.stringify({
+          timestamp: userTimestamp,
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: `Imported question ${index + 1}`,
+            local_images: [],
+          },
+        }),
+      );
+      rolloutLines.push(
+        JSON.stringify({
+          timestamp: agentTimestamp,
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: `Imported answer ${index + 1}`,
+            phase: "final",
+          },
+        }),
+      );
+    }
+    await writeFile(rolloutDiskPath, `${rolloutLines.join("\n")}\n`, "utf8");
+
+    const stateDb = new DatabaseSync(path.join(config.codexHome, "state_5.sqlite"));
+    stateDb.exec(`
+      CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT NOT NULL
+      )
+    `);
+    stateDb
+      .prepare("INSERT INTO threads (id, rollout_path) VALUES (?, ?)")
+      .run("thread-full-history", `/codex-home/${rolloutRelativePath}`);
+    stateDb.close();
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-full-history",
+        name: "Imported with full history",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:20:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    assert.equal(imported[0].conversation.length, 60);
+    assert.equal(imported[0].conversation[0]?.content, "Imported question 1");
+    assert.equal(imported[0].conversation[1]?.content, "Imported answer 1");
+    assert.equal(imported[0].conversation.at(-2)?.content, "Imported question 30");
+    assert.equal(imported[0].conversation.at(-1)?.content, "Imported answer 30");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("refreshes imported conversation when a host rollout grows after import", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
