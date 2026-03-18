@@ -2,8 +2,8 @@
 
 This file keeps the English README content. The primary repository entry is now the Chinese [README](../README.md).
 
-`codex-feishu-bridge` is a CLI-first bridge that connects Codex tasks to a desktop VSCode surface and a mobile Feishu surface.
-It is designed for developers who want to start, inspect, and control Codex work from multiple devices without making the editor plugin the runtime authority.
+`codex-feishu-bridge` gives a single Codex task two fully connected control surfaces: VSCode on the desktop and Feishu on the phone.
+Start, steer, review, and take over work from the workstation, then leave the desk and keep launching tasks, tracking progress, handling approvals, and resuming the exact same thread from Feishu.
 
 ## Overview
 

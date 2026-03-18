@@ -1,7 +1,7 @@
 # codex-feishu-bridge
 
-`codex-feishu-bridge` 用来把同一个任务同时接到桌面端 VSCode 和手机端飞书上。
-你可以在电脑上启动和接管任务，也可以在离开工位后继续在手机上看进度、收回复、处理审批。
+`codex-feishu-bridge` 让同一个 Codex 任务同时拥有两个完整入口：桌面端 VSCode 和手机端飞书。
+你既可以在电脑前创建、接管、审阅和推进任务，也可以在离开工位后继续用飞书远程发起新任务、跟进进度、收取回复、处理审批，并在回到工位后无缝接回同一条线程。
 
 英文版说明保留在 [docs/README.en.md](./docs/README.en.md)。
 
