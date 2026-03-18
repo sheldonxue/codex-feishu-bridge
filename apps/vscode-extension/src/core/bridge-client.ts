@@ -1,4 +1,4 @@
-import type { BridgeTask, QueuedApproval } from "@codex-feishu-bridge/protocol";
+import type { BridgeTask, MessageSurface, QueuedApproval } from "@codex-feishu-bridge/protocol";
 
 import type { DaemonSnapshot } from "./task-model";
 
@@ -42,11 +42,19 @@ interface CreateTaskPayload {
   workspaceRoot?: string;
   prompt?: string;
   imageAssetIds?: string[];
+  source?: MessageSurface;
+  replyToFeishu?: boolean;
 }
 
 interface TaskMessagePayload {
   content: string;
   imageAssetIds?: string[];
+  source?: MessageSurface;
+  replyToFeishu?: boolean;
+}
+
+interface TaskSettingsPayload {
+  desktopReplySyncToFeishu?: boolean;
 }
 
 interface UploadImagePayload {
@@ -160,6 +168,21 @@ export class BridgeClient {
     const result = await this.requestJson<{ task: BridgeTask }>(`/tasks/${encodeURIComponent(taskId)}/messages`, {
       method: "POST",
       body: JSON.stringify(payload),
+    });
+    return result.task;
+  }
+
+  async updateTaskSettings(taskId: string, payload: TaskSettingsPayload): Promise<BridgeTask> {
+    const result = await this.requestJson<{ task: BridgeTask }>(`/tasks/${encodeURIComponent(taskId)}/settings`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return result.task;
+  }
+
+  async unbindFeishuThread(taskId: string): Promise<BridgeTask> {
+    const result = await this.requestJson<{ task: BridgeTask }>(`/tasks/${encodeURIComponent(taskId)}/feishu/unbind`, {
+      method: "POST",
     });
     return result.task;
   }

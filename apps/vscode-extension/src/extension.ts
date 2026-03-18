@@ -2,12 +2,13 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import type { BridgeTask, QueuedApproval } from "@codex-feishu-bridge/protocol";
+import type { BridgeTask, MessageSurface, QueuedApproval } from "@codex-feishu-bridge/protocol";
 
 import { BridgeClient } from "./core/bridge-client";
 import { diffSummaryText } from "./core/diff-summary";
 import { TaskStore } from "./core/task-store";
 import { openStatusPanel, openTaskDetailPanel } from "./panels/task-detail-panel";
+import { TaskMonitorViewProvider } from "./panels/task-monitor-view";
 import { TaskTreeItem, TaskTreeProvider } from "./providers/task-tree";
 
 interface ExtensionServices {
@@ -25,6 +26,7 @@ interface DevSendMessageRequest {
   taskId: string;
   content: string;
   imagePaths?: string[];
+  replyToFeishu?: boolean;
 }
 
 interface DevResolveApprovalRequest {
@@ -199,12 +201,20 @@ async function openTaskDiff(task: BridgeTask, diffPath?: string): Promise<Bridge
 async function sendTaskMessage(
   services: ExtensionServices,
   taskId: string,
-  payload: { content: string; imagePaths?: string[]; imageAssetIds?: string[] },
+  payload: {
+    content: string;
+    imagePaths?: string[];
+    imageAssetIds?: string[];
+    source?: MessageSurface;
+    replyToFeishu?: boolean;
+  },
 ): Promise<BridgeTask> {
   const imageAssetIds = payload.imageAssetIds ?? (await uploadImagePaths(services, taskId, payload.imagePaths ?? []));
   await services.client.sendMessage(taskId, {
     content: payload.content,
     imageAssetIds,
+    source: payload.source,
+    replyToFeishu: payload.replyToFeishu,
   });
   await services.store.refresh();
   return services.client.getTask(taskId);
@@ -257,6 +267,8 @@ async function withTaskMessage(
   await sendTaskMessage(services, task.taskId, {
     content,
     imageAssetIds: await uploadImages(services, task),
+    source: "vscode",
+    replyToFeishu: task.feishuBinding ? task.desktopReplySyncToFeishu : false,
   });
 }
 
@@ -320,10 +332,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const treeProvider = new TaskTreeProvider(services.store);
+  const monitorProvider = new TaskMonitorViewProvider({
+    context,
+    client,
+    store: services.store,
+    openStatus: async () => {
+      await services.store.refresh();
+      const snapshot = services.store.getSnapshot();
+      openStatusPanel({
+        account: snapshot.account,
+        rateLimits: snapshot.rateLimits,
+        connection: snapshot.connection,
+        taskCount: snapshot.tasks.length,
+      });
+    },
+    openDiff: async (task, diffPath) => {
+      const freshTask = await services.client.getTask(task.taskId);
+      await openTaskDiff(freshTask, diffPath);
+    },
+  });
 
   context.subscriptions.push(
     treeProvider,
     vscode.window.registerTreeDataProvider("codexFeishuBridge.tasks", treeProvider),
+    monitorProvider,
+    vscode.window.registerWebviewViewProvider(TaskMonitorViewProvider.viewType, monitorProvider, {
+      webviewOptions: {
+        retainContextWhenHidden: true,
+      },
+    }),
   );
 
   context.subscriptions.push({
@@ -372,6 +409,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         prompt: prompt ?? "",
       });
       await services.store.refresh();
+      const latestTask = services.store.listTasks()[0];
+      if (latestTask) {
+        await monitorProvider.focusTask(latestTask, true);
+      }
+    }),
+    vscode.commands.registerCommand("codexFeishuBridge.focusTaskInMonitor", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
+      const task = (await resolveTaskArgument(services.store, taskOrItem)) ??
+        (await pickTask(services.store, "Select a task to monitor"));
+      if (!task) {
+        return;
+      }
+      await monitorProvider.focusTask(task);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.resumeTask", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
       const task = (await resolveTaskArgument(services.store, taskOrItem)) ??
@@ -382,6 +431,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await services.client.resumeTask(task.taskId);
       await services.store.refresh();
+      await monitorProvider.focusTask(task);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.importThreads", async () => {
       const threadId = await vscode.window.showInputBox({
@@ -398,7 +448,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      await withTaskMessage(services, task);
+      await monitorProvider.focusTask(task, true);
     }),
     vscode.commands.registerCommand("codexFeishuBridge.interruptTask", async (taskOrItem?: BridgeTask | TaskTreeItem) => {
       const task = (await resolveTaskArgument(services.store, taskOrItem)) ??
@@ -504,6 +554,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sendTaskMessage(services, request.taskId, {
           content: request.content,
           imagePaths: request.imagePaths,
+          source: "vscode",
+          replyToFeishu: request.replyToFeishu,
         })),
       vscode.commands.registerCommand("codexFeishuBridge.dev.resolveApproval", async (request: DevResolveApprovalRequest) =>
         resolveTaskApproval(services, request)),

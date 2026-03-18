@@ -22,6 +22,10 @@ export class TaskStore {
     return this.snapshot.tasks;
   }
 
+  getTask(taskId: string): BridgeTask | undefined {
+    return this.snapshot.tasks.find((task) => task.taskId === taskId);
+  }
+
   onDidChange(listener: () => void): () => void {
     this.emitter.on("changed", listener);
     return () => {

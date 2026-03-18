@@ -2,8 +2,8 @@
   "name": "@codex-feishu-bridge/vscode-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "VSCode desktop frontend for the Codex and Feishu bridge project.",
-  "displayName": "Codex Feishu Bridge",
+  "description": "VSCode graphical monitor for Feishu-bound Codex tasks.",
+  "displayName": "Codex Feishu Task Monitor",
   "publisher": "local-dev",
   "main": "./dist/extension.js",
   "engines": {
@@ -15,6 +15,8 @@
   ],
   "activationEvents": [
     "onView:codexFeishuBridge.tasks",
+    "onView:codexFeishuBridge.monitor",
+    "onCommand:codexFeishuBridge.focusTaskInMonitor",
     "onCommand:codexFeishuBridge.refresh",
     "onCommand:codexFeishuBridge.login",
     "onCommand:codexFeishuBridge.newTask",
@@ -34,11 +36,20 @@
       "explorer": [
         {
           "id": "codexFeishuBridge.tasks",
-          "name": "Codex Bridge Tasks"
+          "name": "Feishu Task List"
+        },
+        {
+          "type": "webview",
+          "id": "codexFeishuBridge.monitor",
+          "name": "Feishu Task Monitor"
         }
       ]
     },
     "commands": [
+      {
+        "command": "codexFeishuBridge.focusTaskInMonitor",
+        "title": "Codex Bridge: Focus Task In Monitor"
+      },
       {
         "command": "codexFeishuBridge.refresh",
         "title": "Codex Bridge: Refresh Tasks"
@@ -100,6 +111,11 @@
           "group": "navigation"
         },
         {
+          "command": "codexFeishuBridge.openStatus",
+          "when": "view == codexFeishuBridge.monitor",
+          "group": "navigation"
+        },
+        {
           "command": "codexFeishuBridge.newTask",
           "when": "view == codexFeishuBridge.tasks",
           "group": "navigation"
@@ -107,7 +123,7 @@
       ],
       "view/item/context": [
         {
-          "command": "codexFeishuBridge.openTaskDetails",
+          "command": "codexFeishuBridge.focusTaskInMonitor",
           "when": "view == codexFeishuBridge.tasks && viewItem == bridgeTask",
           "group": "inline"
         },
@@ -129,7 +145,7 @@
       ]
     },
     "configuration": {
-      "title": "Codex Feishu Bridge",
+      "title": "Codex Feishu Task Monitor",
       "properties": {
         "codexFeishuBridge.baseUrl": {
           "type": "string",

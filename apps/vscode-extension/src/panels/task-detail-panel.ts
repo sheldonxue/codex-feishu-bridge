@@ -29,7 +29,7 @@ function renderTask(task: BridgeTask): string {
   const conversation = task.conversation
     .map(
       (message) =>
-        `<article class="message"><header>${escapeHtml(message.author)} - ${escapeHtml(
+        `<article class="message"><header>${escapeHtml(message.author)} / ${escapeHtml(message.surface)} - ${escapeHtml(
           new Date(message.createdAt).toLocaleString(),
         )}</header><pre>${escapeHtml(message.content)}</pre></article>`,
     )
@@ -90,6 +90,7 @@ function renderTask(task: BridgeTask): string {
       <div><strong>Mode</strong><br />${escapeHtml(task.mode)}</div>
       <div><strong>Workspace</strong><br /><code>${escapeHtml(task.workspaceRoot)}</code></div>
       <div><strong>Images</strong><br />${task.imageAssets.length}</div>
+      <div><strong>Desktop Reply Sync</strong><br />${task.desktopReplySyncToFeishu}</div>
     </div>
   </section>
   <section>

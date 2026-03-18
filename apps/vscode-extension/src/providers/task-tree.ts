@@ -29,6 +29,11 @@ function taskTooltip(task: BridgeTask): vscode.MarkdownString {
   markdown.appendMarkdown(`- Workspace: \`${task.workspaceRoot}\`\n`);
   markdown.appendMarkdown(`- Messages: \`${task.conversation.length}\`\n`);
   markdown.appendMarkdown(`- Pending approvals: \`${task.pendingApprovals.filter((item) => item.state === "pending").length}\`\n`);
+  markdown.appendMarkdown(`- Desktop reply sync to Feishu: \`${task.desktopReplySyncToFeishu}\`\n`);
+  if (task.feishuBinding) {
+    markdown.appendMarkdown(`- Feishu chat: \`${task.feishuBinding.chatId}\`\n`);
+    markdown.appendMarkdown(`- Feishu thread: \`${task.feishuBinding.threadKey}\`\n`);
+  }
   if (task.latestSummary) {
     markdown.appendMarkdown(`\n${task.latestSummary}`);
   }
@@ -38,15 +43,23 @@ function taskTooltip(task: BridgeTask): vscode.MarkdownString {
 
 export class TaskTreeItem extends vscode.TreeItem {
   constructor(readonly task: BridgeTask) {
-    super(task.title, vscode.TreeItemCollapsibleState.None);
+    super(task.feishuBinding ? `◉ ${task.title}` : task.title, vscode.TreeItemCollapsibleState.None);
     this.id = task.taskId;
-    this.description = task.status;
+    const pendingApprovals = task.pendingApprovals.filter((item) => item.state === "pending").length;
+    this.description = [
+      task.feishuBinding ? "Feishu" : undefined,
+      task.status,
+      pendingApprovals ? `${pendingApprovals} approvals` : undefined,
+      `${task.conversation.length} msgs`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     this.contextValue = "bridgeTask";
     this.iconPath = taskIcon(task.status);
     this.tooltip = taskTooltip(task);
     this.command = {
-      command: "codexFeishuBridge.openTaskDetails",
-      title: "Open Task Details",
+      command: "codexFeishuBridge.focusTaskInMonitor",
+      title: "Focus Task In Monitor",
       arguments: [task],
     };
   }
