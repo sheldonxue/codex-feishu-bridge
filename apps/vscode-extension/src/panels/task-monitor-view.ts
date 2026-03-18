@@ -700,7 +700,14 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
         if (secondary) {
           lines.push(secondary);
         }
-        return lines.join("\n") || "Available";
+        return lines.join("\\n") || "Available";
+      }
+
+      function emptySelectionHint() {
+        if (!state.showLocalImportedTasks && state.hiddenTaskCount > 0) {
+          return "Only Feishu-bound tasks are currently shown. Turn on Show local imported tasks if you want to inspect imported host threads.";
+        }
+        return "Pick a task from the tree or the list above. Feishu-bound tasks are highlighted so you can monitor mobile conversations without leaving VSCode.";
       }
 
       function selectedTaskPanel() {
@@ -710,11 +717,7 @@ export class TaskMonitorViewProvider implements vscode.WebviewViewProvider, vsco
             <section class="panel">
               <div class="eyebrow">Monitor</div>
               <h2>No task selected</h2>
-              <p class="muted">\${
-                !state.showLocalImportedTasks && state.hiddenTaskCount > 0
-                  ? "Only Feishu-bound tasks are currently shown. Turn on Show local imported tasks if you want to inspect imported host threads."
-                  : "Pick a task from the tree or the list above. Feishu-bound tasks are highlighted so you can monitor mobile conversations without leaving VSCode."
-              }</p>
+              <p class="muted">\${escapeHtml(emptySelectionHint())}</p>
             </section>
           \`;
         }
