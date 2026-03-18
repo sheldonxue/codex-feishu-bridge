@@ -98,17 +98,15 @@ export class TaskStore {
   }
 
   private applySocketFrame(frame: BridgeSocketFrame): void {
-    if (frame.type === "snapshot") {
-      this.snapshot = applyDaemonSnapshot(this.snapshot, frame.snapshot, "connected");
-      this.emitter.emit("changed");
+    if (frame.type === "event") {
+      this.snapshot = {
+        ...this.snapshot,
+        connection: "connected",
+      };
       return;
     }
 
-    this.snapshot = {
-      ...this.snapshot,
-      connection: "connected",
-      lastUpdatedAt: frame.event.timestamp,
-    };
+    this.snapshot = applyDaemonSnapshot(this.snapshot, frame.snapshot, "connected");
     this.emitter.emit("changed");
   }
 

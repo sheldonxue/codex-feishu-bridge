@@ -47,6 +47,7 @@ function escapeHtml(value: string): string {
 export class TaskMonitorPanel implements vscode.Disposable {
   static readonly panelType = "codexFeishuBridge.monitorPanel";
   private static readonly panelTitle = "Codex Feishu Monitor";
+  private static readonly modelCacheTtlMs = 60_000;
   private static readonly selectedTaskStorageKey = "codexFeishuBridge.monitor.selectedTaskId";
   private static readonly userSelectedTaskStorageKey = "codexFeishuBridge.monitor.userSelectedTask";
   private static readonly showLocalImportedTasksStorageKey = "codexFeishuBridge.monitor.showLocalImportedTasks";
@@ -57,6 +58,10 @@ export class TaskMonitorPanel implements vscode.Disposable {
   private hasUserSelectedTask: boolean;
   private showLocalImportedTasks: boolean;
   private focusComposerOnNextState = false;
+  private cachedModels: ModelDescriptor[] = [];
+  private modelsFetchedAt = 0;
+  private postStateQueued = false;
+  private postStateRunner: Promise<void> | null = null;
 
   constructor(private readonly options: TaskMonitorPanelOptions) {
     this.selectedTaskId = this.options.context.workspaceState.get<string>(TaskMonitorPanel.selectedTaskStorageKey);
@@ -67,7 +72,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
       this.options.context.workspaceState.get<boolean>(TaskMonitorPanel.showLocalImportedTasksStorageKey) ?? false;
     this.disposables.push({
       dispose: this.options.store.onDidChange(() => {
-        void this.postState();
+        this.requestPostState();
       }),
     });
   }
@@ -492,7 +497,60 @@ export class TaskMonitorPanel implements vscode.Disposable {
     await this.panel.webview.postMessage(message);
   }
 
-  private async postState(): Promise<void> {
+  private requestPostState(forceRefreshModels = false): void {
+    void this.postState(forceRefreshModels);
+  }
+
+  private async postState(forceRefreshModels = false): Promise<void> {
+    this.postStateQueued = true;
+    if (this.postStateRunner) {
+      if (forceRefreshModels) {
+        this.modelsFetchedAt = 0;
+      }
+      await this.postStateRunner;
+      return;
+    }
+
+    this.postStateRunner = this.flushQueuedStatePosts(forceRefreshModels);
+    try {
+      await this.postStateRunner;
+    } finally {
+      this.postStateRunner = null;
+    }
+  }
+
+  private async flushQueuedStatePosts(forceRefreshModels: boolean): Promise<void> {
+    let shouldRefreshModels = forceRefreshModels;
+    while (this.postStateQueued) {
+      this.postStateQueued = false;
+      await this.postStateNow(shouldRefreshModels);
+      shouldRefreshModels = false;
+    }
+  }
+
+  private async readCachedModels(forceRefresh = false): Promise<ModelDescriptor[]> {
+    const cacheStillFresh =
+      !forceRefresh &&
+      this.cachedModels.length > 0 &&
+      Date.now() - this.modelsFetchedAt < TaskMonitorPanel.modelCacheTtlMs;
+    if (cacheStillFresh) {
+      return this.cachedModels;
+    }
+
+    try {
+      this.cachedModels = await this.options.client.listModels();
+      this.modelsFetchedAt = Date.now();
+    } catch {
+      if (forceRefresh) {
+        this.cachedModels = [];
+        this.modelsFetchedAt = 0;
+      }
+    }
+
+    return this.cachedModels;
+  }
+
+  private async postStateNow(forceRefreshModels = false): Promise<void> {
     if (!this.panel) {
       return;
     }
@@ -500,12 +558,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
       showLocalImportedTasks: this.showLocalImportedTasks,
       autoSelectFirstTask: !this.hasUserSelectedTask,
     });
-    let models: ModelDescriptor[] = [];
-    try {
-      models = await this.options.client.listModels();
-    } catch {
-      models = [];
-    }
+    const models = await this.readCachedModels(forceRefreshModels);
     if (state.selectedTaskId && state.selectedTaskId !== this.selectedTaskId) {
       this.selectedTaskId = state.selectedTaskId;
       await this.options.context.workspaceState.update(TaskMonitorPanel.selectedTaskStorageKey, this.selectedTaskId);

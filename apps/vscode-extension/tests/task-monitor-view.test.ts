@@ -140,10 +140,17 @@ describe("task monitor view source", () => {
     const sourcePath = path.resolve(currentDir, "../src/panels/task-monitor-view.ts");
     const source = readFileSync(sourcePath, "utf8");
 
+    assert.match(source, /private static readonly modelCacheTtlMs = 60_000;/);
+    assert.match(source, /private cachedModels: ModelDescriptor\[] = \[];/);
+    assert.match(source, /private postStateQueued = false;/);
+    assert.match(source, /dispose: this\.options\.store\.onDidChange\(\(\) => {\s*this\.requestPostState\(\);\s*}\),/s);
     assert.match(source, /let queuedStateMessage = null;/);
     assert.match(source, /let conversationPointerActive = false;/);
     assert.match(source, /let conversationInteractionLocked = false;/);
+    assert.match(source, /private requestPostState\(forceRefreshModels = false\): void {/);
     assert.match(source, /function applyIncomingStateMessage\(message\)/);
+    assert.match(source, /private async flushQueuedStatePosts\(forceRefreshModels: boolean\): Promise<void> {/);
+    assert.match(source, /private async readCachedModels\(forceRefresh = false\): Promise<ModelDescriptor\[]> {/);
     assert.match(source, /function flushQueuedStateMessage\(\)/);
     assert.match(source, /function handleConversationPointerDown\(\)/);
     assert.match(source, /function handleConversationPointerUp\(\)/);
