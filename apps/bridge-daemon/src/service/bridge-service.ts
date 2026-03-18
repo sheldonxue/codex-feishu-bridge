@@ -149,8 +149,14 @@ interface RuntimeThreadApplyResult {
 
 interface RolloutConversationSeed {
   author: MessageAuthor;
+  surface: MessageSurface;
   content: string;
   createdAt: string;
+}
+
+interface RolloutConversationReadResult {
+  messages: RolloutConversationSeed[];
+  taskOrigin?: BridgeTask["taskOrigin"];
 }
 
 function isSandboxMode(value: string | undefined): value is SandboxMode {
@@ -548,67 +554,177 @@ function fallbackConversationContent(imageCount: number): string {
   return imageCount === 1 ? "[local image]" : `[${imageCount} local images]`;
 }
 
-function parseRolloutConversationSeed(line: string): RolloutConversationSeed | null {
+function normalizeRolloutSurface(value: unknown, originator: unknown): MessageSurface | undefined {
+  const direct = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (direct === "vscode" || direct === "feishu") {
+    return direct;
+  }
+
+  const normalizedOriginator = typeof originator === "string" ? originator.trim().toLowerCase() : "";
+  if (normalizedOriginator.includes("vscode")) {
+    return "vscode";
+  }
+  if (normalizedOriginator.includes("feishu")) {
+    return "feishu";
+  }
+
+  return undefined;
+}
+
+function rolloutTaskOriginFromSurface(surface: MessageSurface | undefined, mode: BridgeTask["mode"]): BridgeTask["taskOrigin"] {
+  if (surface === "vscode" || surface === "feishu") {
+    return surface;
+  }
+
+  return normalizeTaskOrigin(undefined, mode);
+}
+
+function messageTextFromResponseContent(content: unknown): string {
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const parts = content
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      if ("text" in entry && typeof (entry as { text?: unknown }).text === "string") {
+        return (entry as { text: string }).text.trim();
+      }
+      return "";
+    })
+    .filter(Boolean);
+
+  return parts.join("\n").trim();
+}
+
+function parseRolloutConversationSeed(line: string, defaultSurface = "runtime" as MessageSurface): {
+  message: RolloutConversationSeed | null;
+  sessionSurface?: MessageSurface;
+} {
   let record: unknown;
   try {
     record = JSON.parse(line);
   } catch {
-    return null;
+    return { message: null };
   }
 
   if (!record || typeof record !== "object") {
-    return null;
+    return { message: null };
   }
 
   const type = "type" in record ? (record as { type?: unknown }).type : undefined;
-  if (type !== "event_msg") {
-    return null;
+  if (type === "session_meta") {
+    const payload = "payload" in record ? (record as { payload?: unknown }).payload : undefined;
+    if (!payload || typeof payload !== "object") {
+      return { message: null };
+    }
+    return {
+      message: null,
+      sessionSurface: normalizeRolloutSurface(
+        "source" in payload ? (payload as { source?: unknown }).source : undefined,
+        "originator" in payload ? (payload as { originator?: unknown }).originator : undefined,
+      ),
+    };
   }
 
   const timestamp =
     "timestamp" in record && typeof (record as { timestamp?: unknown }).timestamp === "string"
       ? (record as { timestamp: string }).timestamp
       : new Date().toISOString();
+  if (type === "event_msg") {
+    const payload = "payload" in record ? (record as { payload?: unknown }).payload : undefined;
+    if (!payload || typeof payload !== "object") {
+      return { message: null };
+    }
+
+    const payloadType = "type" in payload ? (payload as { type?: unknown }).type : undefined;
+    if (payloadType === "user_message") {
+      const message =
+        "message" in payload && typeof (payload as { message?: unknown }).message === "string"
+          ? (payload as { message: string }).message.trim()
+          : "";
+      const localImages =
+        "local_images" in payload && Array.isArray((payload as { local_images?: unknown[] }).local_images)
+          ? (payload as { local_images?: unknown[] }).local_images?.length ?? 0
+          : 0;
+      const content = message || fallbackConversationContent(localImages);
+      return {
+        message: content
+          ? {
+              author: "user",
+              surface: defaultSurface,
+              content,
+              createdAt: timestamp,
+            }
+          : null,
+      };
+    }
+
+    if (payloadType === "agent_message") {
+      const message =
+        "message" in payload && typeof (payload as { message?: unknown }).message === "string"
+          ? (payload as { message: string }).message.trim()
+          : "";
+      return {
+        message: message
+          ? {
+              author: "agent",
+              surface: "runtime",
+              content: message,
+              createdAt: timestamp,
+            }
+          : null,
+      };
+    }
+
+    return { message: null };
+  }
+
+  if (type !== "response_item") {
+    return { message: null };
+  }
+
   const payload = "payload" in record ? (record as { payload?: unknown }).payload : undefined;
   if (!payload || typeof payload !== "object") {
-    return null;
+    return { message: null };
   }
 
   const payloadType = "type" in payload ? (payload as { type?: unknown }).type : undefined;
-  if (payloadType === "user_message") {
-    const message =
-      "message" in payload && typeof (payload as { message?: unknown }).message === "string"
-        ? (payload as { message: string }).message.trim()
-        : "";
-    const localImages =
-      "local_images" in payload && Array.isArray((payload as { local_images?: unknown[] }).local_images)
-        ? (payload as { local_images?: unknown[] }).local_images?.length ?? 0
-        : 0;
-    const content = message || fallbackConversationContent(localImages);
-    return content
-      ? {
-          author: "user",
-          content,
-          createdAt: timestamp,
-        }
-      : null;
+  if (payloadType !== "message") {
+    return { message: null };
   }
 
-  if (payloadType === "agent_message") {
-    const message =
-      "message" in payload && typeof (payload as { message?: unknown }).message === "string"
-        ? (payload as { message: string }).message.trim()
-        : "";
-    return message
-      ? {
-          author: "agent",
-          content: message,
-          createdAt: timestamp,
-        }
-      : null;
+  const role = "role" in payload ? (payload as { role?: unknown }).role : undefined;
+  const text = messageTextFromResponseContent("content" in payload ? (payload as { content?: unknown }).content : undefined);
+  if (!text) {
+    return { message: null };
   }
 
-  return null;
+  if (role === "user") {
+    return {
+      message: {
+        author: "user",
+        surface: defaultSurface,
+        content: text,
+        createdAt: timestamp,
+      },
+    };
+  }
+
+  if (role === "assistant") {
+    return {
+      message: {
+        author: "agent",
+        surface: "runtime",
+        content: text,
+        createdAt: timestamp,
+      },
+    };
+  }
+
+  return { message: null };
 }
 
 export class BridgeService {
@@ -1950,7 +2066,10 @@ export class BridgeService {
         };
       }
 
-      const messages = await this.readConversationFromRollout(rolloutPath);
+      const { messages, taskOrigin } = await this.readConversationFromRollout(task, rolloutPath);
+      if (taskOrigin && task.taskOrigin !== taskOrigin) {
+        task.taskOrigin = taskOrigin;
+      }
       if (messages.length === 0) {
         return {
           changed: false,
@@ -1961,7 +2080,7 @@ export class BridgeService {
       const nextConversation: ConversationMessage[] = messages.map((message, index) => ({
         messageId: `${task.threadId}:imported:${index}`,
         author: message.author,
-        surface: "runtime",
+        surface: message.surface,
         content: message.content,
         createdAt: message.createdAt,
       }));
@@ -2057,8 +2176,12 @@ export class BridgeService {
     });
   }
 
-  private async readConversationFromRollout(rolloutPath: string): Promise<RolloutConversationSeed[]> {
+  private async readConversationFromRollout(
+    task: Pick<BridgeTask, "mode" | "taskOrigin">,
+    rolloutPath: string,
+  ): Promise<RolloutConversationReadResult> {
     const messages: RolloutConversationSeed[] = [];
+    let sessionSurface: MessageSurface | undefined;
     const stream = createReadStream(rolloutPath, { encoding: "utf8" });
     const lines = createInterface({
       input: stream,
@@ -2067,7 +2190,11 @@ export class BridgeService {
 
     try {
       for await (const line of lines) {
-        const message = parseRolloutConversationSeed(line);
+        const parsed = parseRolloutConversationSeed(line, sessionSurface ?? "runtime");
+        if (parsed.sessionSurface) {
+          sessionSurface = parsed.sessionSurface;
+        }
+        const message = parsed.message;
         if (!message) {
           continue;
         }
@@ -2078,7 +2205,10 @@ export class BridgeService {
       stream.close();
     }
 
-    return messages;
+    return {
+      messages,
+      taskOrigin: rolloutTaskOriginFromSurface(sessionSurface, task.mode),
+    };
   }
 
   private async hydrateImportedTaskExecutionProfile(task: BridgeTask): Promise<boolean> {

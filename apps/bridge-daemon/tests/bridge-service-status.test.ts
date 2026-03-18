@@ -563,6 +563,90 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("hydrates vscode-origin imported conversation from session metadata and response items", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-import-vscode-history-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-import-vscode-history.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+    await writeFile(
+      rolloutDiskPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            id: "thread-vscode-history",
+            source: "vscode",
+            originator: "codex_vscode",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:01.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Imported from the Codex IDE" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:02.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Imported IDE answer" }],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    writeThreadStateRow(config, {
+      threadId: "thread-vscode-history",
+      rolloutPath: `/codex-home/${rolloutRelativePath}`,
+    });
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-vscode-history",
+        name: "Imported from VSCode",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    assert.equal(imported[0].taskOrigin, "vscode");
+    assert.deepEqual(
+      imported[0].conversation.map((entry) => ({
+        author: entry.author,
+        surface: entry.surface,
+        content: entry.content,
+      })),
+      [
+        { author: "user", surface: "vscode", content: "Imported from the Codex IDE" },
+        { author: "agent", surface: "runtime", content: "Imported IDE answer" },
+      ],
+    );
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("imports the full rollout conversation instead of truncating to the latest 20 messages", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
