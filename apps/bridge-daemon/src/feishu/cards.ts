@@ -130,14 +130,20 @@ function selectStatic(params: {
   options: Array<{ label: string; value: string }>;
   value: FeishuCardActionValue;
 }): Record<string, unknown> {
+  const serializedOptions = params.options.map((option) => ({
+    text: plainText(option.label),
+    value: option.value,
+  }));
+
   return {
     tag: "select_static",
     placeholder: plainText(params.placeholder),
     ...(params.initialOption ? { initial_option: params.initialOption } : {}),
-    option: params.options.map((option) => ({
-      text: plainText(option.label),
-      value: option.value,
-    })),
+    // Some Feishu clients and SDK references disagree on whether the field is
+    // `option` or `options`. Emit both so mobile clients always receive the
+    // candidate list.
+    option: serializedOptions,
+    options: serializedOptions,
     value: params.value,
   };
 }
