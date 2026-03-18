@@ -1518,9 +1518,10 @@ export class FeishuBridge {
   }): Promise<FeishuInteractiveCard> {
     const { binding, draft, replyTargetId, note } = params;
     const card = await this.buildDraftCard(binding, draft, note ?? draft.note);
+    const nextReplyTargetId = replyTargetId ?? (!draft.cardMessageId ? binding.rootMessageId : undefined);
 
-    if (replyTargetId && !draft.cardMessageId) {
-      draft.cardMessageId = await this.sendCardReply(replyTargetId, card);
+    if (nextReplyTargetId && !draft.cardMessageId) {
+      draft.cardMessageId = await this.sendCardReply(nextReplyTargetId, card);
       if (note !== undefined) {
         draft.note = note;
       }
@@ -1571,8 +1572,9 @@ export class FeishuBridge {
     const card = await this.buildTaskControlCard(task, binding, revision, note ?? existing?.note);
 
     let messageId = existing?.messageId;
-    if (!messageId && replyTargetId) {
-      messageId = await this.sendCardReply(replyTargetId, card);
+    const nextReplyTargetId = replyTargetId ?? (!messageId ? binding.rootMessageId : undefined);
+    if (!messageId && nextReplyTargetId) {
+      messageId = await this.sendCardReply(nextReplyTargetId, card);
     } else if (messageId) {
       await this.patchCardMessage(messageId, card);
     } else {

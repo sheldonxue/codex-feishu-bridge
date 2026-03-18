@@ -21,6 +21,7 @@ interface LongConnectionHarness {
   requests: RequestRecord[];
   runtime: ReturnType<typeof createCodexRuntime>;
   service: BridgeService;
+  feishu: FeishuBridge;
   cleanup: () => Promise<void>;
   onMessage: (message?: unknown, sender?: unknown) => Promise<void>;
   onCardAction: (event?: unknown) => Promise<unknown>;
@@ -163,6 +164,7 @@ async function createHarness(envOverrides: Record<string, string> = {}): Promise
       requests,
       runtime,
       service,
+      feishu,
       onMessage: async (message?: unknown, sender?: unknown) => {
         assert.ok(onMessage, "long connection handler should be registered");
         await onMessage?.(message, sender);
@@ -464,6 +466,69 @@ describe("feishu long connection ingress", () => {
           (request) => request.method === "PATCH" && request.url.includes("/open-apis/im/v1/messages/"),
         ).length >= 3,
       );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("recovers stale draft cards that no longer have a saved card message id", async () => {
+    const harness = await createHarness();
+
+    try {
+      await harness.onMessage(
+        {
+          message_id: "om_stale_init",
+          thread_id: "omt_stale",
+          root_id: "om_root_stale",
+          chat_id: "oc_chat_id",
+          message_type: "text",
+          content: JSON.stringify({ text: "stale draft prompt" }),
+        },
+        {
+          sender_id: {
+            open_id: "ou_stale",
+          },
+        },
+      );
+      await waitFor(
+        () => harness.requests.some((request) => requestContainsCardTitle(request, "Create Codex Task")),
+        "stale draft card",
+      );
+
+      const staleKey = "oc_chat_id:omt_stale";
+      const drafts = (harness.feishu as unknown as { threadDrafts: Map<string, { cardMessageId?: string }> }).threadDrafts;
+      const staleDraft = drafts.get(staleKey);
+      assert.ok(staleDraft);
+      delete staleDraft?.cardMessageId;
+
+      const previousInteractiveReplyCount = harness.requests.filter(
+        (request) => request.method === "POST" && request.url.includes("/open-apis/im/v1/messages/") && requestContainsCardTitle(request, "Create Codex Task"),
+      ).length;
+
+      const cancelledCard = await harness.onCardAction({
+        open_id: "ou_stale",
+        action: {
+          tag: "button",
+          value: {
+            kind: "draft.cancel",
+            chatId: "oc_chat_id",
+            threadKey: "omt_stale",
+            rootMessageId: "om_root_stale",
+            revision: 2,
+          },
+        },
+      });
+
+      assert.ok(cancelledCard);
+      assert.match(JSON.stringify(cancelledCard), /Draft cancelled/);
+      await waitFor(
+        () =>
+          harness.requests.filter(
+            (request) => request.method === "POST" && request.url.includes("/open-apis/im/v1/messages/") && requestContainsCardTitle(request, "Create Codex Task"),
+          ).length > previousInteractiveReplyCount,
+        "replacement draft card reply",
+      );
+      assert.ok(drafts.get(staleKey)?.cardMessageId);
     } finally {
       await harness.cleanup();
     }
