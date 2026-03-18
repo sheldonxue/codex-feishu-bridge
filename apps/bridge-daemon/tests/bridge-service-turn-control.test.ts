@@ -19,10 +19,28 @@ import type {
 import { BridgeService } from "../src/service/bridge-service";
 import { createTestBridgeConfig, TEST_REPO_ROOT } from "./test-paths";
 
+async function waitFor(check: () => boolean, message: string): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 2_000) {
+    if (check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`Timed out waiting for ${message}`);
+}
+
 class DelayedTurnStartRuntime implements CodexRuntime {
   readonly backend = "stdio";
   private readonly listeners = new Set<(notification: CodexRuntimeNotification) => void>();
+  private activeTurnId?: string;
+  private turnCounter = 0;
   private turnStarted = false;
+  readonly startTurnCalls: Array<{
+    threadId: string;
+    input?: CodexInputItem[];
+  }> = [];
   readonly steerCalls: Array<{
     threadId: string;
     turnId: string;
@@ -99,14 +117,21 @@ class DelayedTurnStartRuntime implements CodexRuntime {
   }
 
   async startTurn(params: { threadId: string }): Promise<CodexTurnDescriptor> {
+    this.turnCounter += 1;
+    const turnId = this.turnCounter === 1 ? "turn-race" : `turn-race-${this.turnCounter}`;
     const turn: CodexTurnDescriptor = {
-      id: "turn-race",
+      id: turnId,
       threadId: params.threadId,
       status: "inProgress",
       items: [],
     };
 
+    this.activeTurnId = turnId;
     this.turnStarted = false;
+    this.startTurnCalls.push({
+      threadId: params.threadId,
+      input: "input" in params ? params.input : undefined,
+    });
     setTimeout(() => {
       this.turnStarted = true;
       this.emit({
@@ -154,6 +179,27 @@ class DelayedTurnStartRuntime implements CodexRuntime {
     for (const listener of this.listeners) {
       listener(notification);
     }
+  }
+
+  completeActiveTurn(threadId = "thread-race"): void {
+    if (!this.activeTurnId) {
+      throw new Error("no active turn to complete");
+    }
+
+    const turn: CodexTurnDescriptor = {
+      id: this.activeTurnId,
+      threadId,
+      status: "completed",
+      items: [],
+    };
+    this.activeTurnId = undefined;
+    this.turnStarted = false;
+    this.emit({
+      method: "turn/completed",
+      params: {
+        turn,
+      },
+    });
   }
 }
 
@@ -228,6 +274,63 @@ describe("bridge service turn control", () => {
       assert.deepEqual(runtime.interruptCalls[0], {
         threadId: created.threadId,
         turnId: "turn-race",
+      });
+    } finally {
+      await service.dispose();
+      await runtime.dispose();
+    }
+  });
+
+  it("can queue feishu messages for the next turn instead of steering the active turn", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-turn-control-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new DelayedTurnStartRuntime();
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    try {
+      const created = await service.createTask({
+        title: "Queue task",
+        prompt: "Start the first turn.",
+      });
+      assert.equal(created.activeTurnId, "turn-race");
+      assert.equal(created.status, "running");
+
+      const updated = await service.updateTaskSettings(created.taskId, {
+        feishuRunningMessageMode: "queue",
+      });
+      assert.equal(updated.feishuRunningMessageMode, "queue");
+
+      const queued = await service.sendMessage(created.taskId, {
+        content: "Follow up after the current turn.",
+        source: "feishu",
+        replyToFeishu: true,
+      });
+
+      assert.equal(queued.activeTurnId, "turn-race");
+      assert.equal(queued.queuedMessageCount, 1);
+      assert.equal(runtime.steerCalls.length, 0);
+      assert.equal(runtime.startTurnCalls.length, 1);
+
+      runtime.completeActiveTurn(created.threadId);
+
+      await waitFor(() => (service.getTask(created.taskId)?.queuedMessageCount ?? -1) === 0, "queued message drain");
+      await waitFor(() => (service.getTask(created.taskId)?.activeTurnId ?? "") === "turn-race-2", "second turn start");
+
+      assert.equal(runtime.startTurnCalls.length, 2);
+      assert.deepEqual(runtime.startTurnCalls[1], {
+        threadId: created.threadId,
+        input: [
+          {
+            type: "text",
+            text: "Follow up after the current turn.",
+          },
+        ],
       });
     } finally {
       await service.dispose();

@@ -22,6 +22,8 @@ describe("protocol helpers", () => {
     assert.equal(task.status, "idle");
     assert.equal(task.taskOrigin, "runtime");
     assert.equal(task.desktopReplySyncToFeishu, false);
+    assert.equal(task.feishuRunningMessageMode, "steer");
+    assert.equal(task.queuedMessageCount, 0);
     assert.deepEqual(task.pendingApprovals, []);
     assert.deepEqual(task.diffs, []);
   });

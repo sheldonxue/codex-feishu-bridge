@@ -42,6 +42,7 @@ export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 export type TaskAssetKind = "image" | "file";
+export type FeishuRunningMessageMode = "steer" | "queue";
 
 export interface FeishuThreadBinding {
   chatId: string;
@@ -114,6 +115,8 @@ export interface BridgeTask {
   latestSummary?: string;
   executionProfile: TaskExecutionProfile;
   desktopReplySyncToFeishu: boolean;
+  feishuRunningMessageMode: FeishuRunningMessageMode;
+  queuedMessageCount: number;
   feishuBinding?: FeishuThreadBinding;
   feishuBindingDisabled?: boolean;
   pendingApprovals: QueuedApproval[];
@@ -163,6 +166,8 @@ export function createBridgeTask(seed: BridgeTaskSeed): BridgeTask {
     status: "idle",
     executionProfile: structuredClone(seed.executionProfile ?? {}),
     desktopReplySyncToFeishu: false,
+    feishuRunningMessageMode: "steer",
+    queuedMessageCount: 0,
     feishuBindingDisabled: false,
     pendingApprovals: [],
     diffs: [],

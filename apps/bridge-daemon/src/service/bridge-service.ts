@@ -13,6 +13,7 @@ import {
   type BridgeEvent,
   type BridgeTask,
   type ConversationMessage,
+  type FeishuRunningMessageMode,
   type FeishuThreadBinding,
   type MessageAuthor,
   type MessageSurface,
@@ -53,6 +54,7 @@ const AGENT_DIFF_SUMMARY = "Extracted from agent diff block";
 interface PersistedState {
   seq: number;
   tasks: BridgeTask[];
+  queuedMessagesByTaskId?: Record<string, QueuedTaskMessage[]>;
 }
 
 export interface BridgeServiceSnapshot {
@@ -84,6 +86,7 @@ export interface TaskMessageRequest {
 
 export interface TaskSettingsRequest {
   desktopReplySyncToFeishu?: boolean;
+  feishuRunningMessageMode?: FeishuRunningMessageMode;
   executionProfile?: TaskExecutionProfile;
 }
 
@@ -110,6 +113,13 @@ interface PendingTurnStart {
 }
 
 interface PendingConversationSource {
+  surface: MessageSurface;
+  replyToFeishu: boolean;
+  content: string;
+  assetIds: string[];
+}
+
+interface QueuedTaskMessage {
   surface: MessageSurface;
   replyToFeishu: boolean;
   content: string;
@@ -160,6 +170,16 @@ function normalizeTaskOrigin(
   return mode === "manual-import" ? "cli" : "runtime";
 }
 
+function normalizeFeishuRunningMessageMode(
+  mode: BridgeTask["feishuRunningMessageMode"] | undefined,
+): BridgeTask["feishuRunningMessageMode"] {
+  return mode === "queue" ? "queue" : "steer";
+}
+
+function normalizeQueuedMessageCount(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value ?? 0)) : 0;
+}
+
 function taskOriginFromSource(
   source: MessageSurface | undefined,
   mode: BridgeTask["mode"],
@@ -177,6 +197,8 @@ function hydratePersistedTask(task: BridgeTask): BridgeTask {
   hydratedTask.taskOrigin = normalizeTaskOrigin(task.taskOrigin, task.mode);
   hydratedTask.executionProfile = normalizeExecutionProfile(task.executionProfile);
   hydratedTask.desktopReplySyncToFeishu = task.desktopReplySyncToFeishu ?? Boolean(task.feishuBinding);
+  hydratedTask.feishuRunningMessageMode = normalizeFeishuRunningMessageMode(task.feishuRunningMessageMode);
+  hydratedTask.queuedMessageCount = normalizeQueuedMessageCount(task.queuedMessageCount);
   hydratedTask.feishuBindingDisabled = task.feishuBindingDisabled ?? false;
   hydratedTask.conversation = hydratedTask.conversation.map(normalizeConversationMessage);
   hydrateTaskDiffs(hydratedTask);
@@ -189,6 +211,8 @@ function cloneTask(task: BridgeTask): BridgeTask {
   clonedTask.taskOrigin = normalizeTaskOrigin(clonedTask.taskOrigin, clonedTask.mode);
   clonedTask.executionProfile = normalizeExecutionProfile(clonedTask.executionProfile);
   clonedTask.desktopReplySyncToFeishu = clonedTask.desktopReplySyncToFeishu ?? Boolean(clonedTask.feishuBinding);
+  clonedTask.feishuRunningMessageMode = normalizeFeishuRunningMessageMode(clonedTask.feishuRunningMessageMode);
+  clonedTask.queuedMessageCount = normalizeQueuedMessageCount(clonedTask.queuedMessageCount);
   clonedTask.conversation = clonedTask.conversation.map(normalizeConversationMessage);
   hydrateTaskDiffs(clonedTask);
   return clonedTask;
@@ -581,9 +605,11 @@ export class BridgeService {
   private readonly tasks = new Map<string, BridgeTask>();
   private readonly pendingConversationSources = new Map<string, PendingConversationSource[]>();
   private readonly pendingTurnReplyPolicies = new Map<string, PendingConversationSource[]>();
+  private readonly queuedMessages = new Map<string, QueuedTaskMessage[]>();
   private readonly turnReplyPolicies = new Map<string, PendingConversationSource>();
   private readonly pendingTurnStarts = new Map<string, PendingTurnStart>();
   private readonly startedTurns = new Set<string>();
+  private readonly queuedMessageDrains = new Set<string>();
   private readonly stateFile: string;
   private seq = 0;
   private account: CodexAccountSnapshot | null = null;
@@ -614,6 +640,22 @@ export class BridgeService {
     for (const task of persisted.tasks) {
       this.tasks.set(task.taskId, hydratePersistedTask(task));
     }
+    for (const [taskId, queuedMessages] of Object.entries(persisted.queuedMessagesByTaskId ?? {})) {
+      if (queuedMessages.length === 0) {
+        continue;
+      }
+      const task = this.tasks.get(taskId);
+      if (!task) {
+        continue;
+      }
+      this.queuedMessages.set(taskId, queuedMessages.map((message) => ({
+        surface: message.surface,
+        replyToFeishu: message.replyToFeishu,
+        content: message.content,
+        assetIds: [...message.assetIds],
+      })));
+      task.queuedMessageCount = queuedMessages.length;
+    }
 
     this.unsubscribeRuntime = this.options.runtime.onNotification((notification) => {
       void this.handleRuntimeNotification(notification);
@@ -621,6 +663,7 @@ export class BridgeService {
 
     await this.reconcilePersistedTasks();
     await this.refreshAccountState();
+    await this.resumeQueuedMessagesAfterInitialize();
     this.startRuntimeSyncLoop();
     this.emitEvent(SYSTEM_TASK_ID, "daemon.ready", {
       tasks: this.listTasks(),
@@ -831,20 +874,33 @@ export class BridgeService {
       request.replyToFeishu ??
       (messageSource === "feishu" ? true : task.feishuBinding ? task.desktopReplySyncToFeishu : false);
     const assetIds = request.assetIds ?? request.imageAssetIds ?? [];
-    this.enqueueConversationSource(task.taskId, {
+    const normalizedSource: PendingConversationSource = {
       surface: messageSource,
       replyToFeishu,
       content: request.content.trim(),
       assetIds,
-    });
+    };
+
+    if (
+      task.activeTurnId &&
+      task.status === "running" &&
+      messageSource === "feishu" &&
+      task.feishuRunningMessageMode === "queue"
+    ) {
+      this.enqueueQueuedMessage(task, normalizedSource);
+      this.touchTask(task);
+      await this.persistState();
+      this.emitEvent(task.taskId, "task.message.queued", {
+        task: cloneTask(task),
+        queuedMessageCount: task.queuedMessageCount,
+      });
+      return cloneTask(task);
+    }
+
+    this.enqueueConversationSource(task.taskId, normalizedSource);
 
     if (task.activeTurnId && task.status === "running") {
-      this.turnReplyPolicies.set(task.activeTurnId, {
-        surface: messageSource,
-        replyToFeishu,
-        content: request.content.trim(),
-        assetIds,
-      });
+      this.turnReplyPolicies.set(task.activeTurnId, normalizedSource);
       await this.steerActiveTurn(task.threadId, task.activeTurnId, input);
       this.emitEvent(task.taskId, "task.steered", {
         taskId: task.taskId,
@@ -1019,6 +1075,9 @@ export class BridgeService {
     if (typeof request.desktopReplySyncToFeishu === "boolean") {
       task.desktopReplySyncToFeishu = request.desktopReplySyncToFeishu;
     }
+    if (request.feishuRunningMessageMode) {
+      task.feishuRunningMessageMode = normalizeFeishuRunningMessageMode(request.feishuRunningMessageMode);
+    }
     if (request.executionProfile) {
       task.executionProfile = normalizeExecutionProfile(request.executionProfile);
     }
@@ -1117,6 +1176,49 @@ export class BridgeService {
     this.pendingTurnReplyPolicies.set(taskId, queue);
   }
 
+  private enqueueQueuedMessage(task: BridgeTask, message: QueuedTaskMessage): void {
+    const queue = this.queuedMessages.get(task.taskId) ?? [];
+    queue.push({
+      surface: message.surface,
+      replyToFeishu: message.replyToFeishu,
+      content: message.content,
+      assetIds: [...message.assetIds],
+    });
+    this.queuedMessages.set(task.taskId, queue);
+    task.queuedMessageCount = queue.length;
+  }
+
+  private dequeueQueuedMessage(task: BridgeTask): QueuedTaskMessage | null {
+    const queue = this.queuedMessages.get(task.taskId);
+    if (!queue?.length) {
+      task.queuedMessageCount = 0;
+      return null;
+    }
+
+    const next = queue.shift() ?? null;
+    if (!queue.length) {
+      this.queuedMessages.delete(task.taskId);
+    }
+    task.queuedMessageCount = queue.length;
+    return next;
+  }
+
+  private requeueQueuedMessageFront(task: BridgeTask, message: QueuedTaskMessage): void {
+    const queue = this.queuedMessages.get(task.taskId) ?? [];
+    queue.unshift({
+      surface: message.surface,
+      replyToFeishu: message.replyToFeishu,
+      content: message.content,
+      assetIds: [...message.assetIds],
+    });
+    this.queuedMessages.set(task.taskId, queue);
+    task.queuedMessageCount = queue.length;
+  }
+
+  private getQueuedMessageCount(taskId: string): number {
+    return this.queuedMessages.get(taskId)?.length ?? 0;
+  }
+
   private takePendingTurnReplyPolicy(taskId: string): PendingConversationSource | null {
     const queue = this.pendingTurnReplyPolicies.get(taskId);
     if (!queue?.length) {
@@ -1128,6 +1230,49 @@ export class BridgeService {
       this.pendingTurnReplyPolicies.delete(taskId);
     }
     return next;
+  }
+
+  private async resumeQueuedMessagesAfterInitialize(): Promise<void> {
+    const queuedTaskIds = [...this.queuedMessages.keys()];
+    for (const taskId of queuedTaskIds) {
+      await this.processQueuedMessages(taskId);
+    }
+  }
+
+  private async processQueuedMessages(taskId: string): Promise<void> {
+    if (this.queuedMessageDrains.has(taskId)) {
+      return;
+    }
+
+    const task = this.tasks.get(taskId);
+    if (!task || task.activeTurnId || task.status === "running" || task.status === "awaiting-approval" || task.status === "blocked") {
+      return;
+    }
+
+    const nextQueuedMessage = this.dequeueQueuedMessage(task);
+    if (!nextQueuedMessage) {
+      return;
+    }
+
+    this.queuedMessageDrains.add(taskId);
+    try {
+      await this.persistState();
+      await this.sendMessage(taskId, {
+        content: nextQueuedMessage.content,
+        assetIds: nextQueuedMessage.assetIds,
+        source: nextQueuedMessage.surface,
+        replyToFeishu: nextQueuedMessage.replyToFeishu,
+      });
+    } catch (error) {
+      this.requeueQueuedMessageFront(task, nextQueuedMessage);
+      await this.persistState();
+      this.options.logger.warn("failed to start queued task message", {
+        taskId,
+        error,
+      });
+    } finally {
+      this.queuedMessageDrains.delete(taskId);
+    }
   }
 
   private async handleRuntimeNotification(notification: CodexRuntimeNotification): Promise<void> {
@@ -1230,6 +1375,7 @@ export class BridgeService {
           task: cloneTask(task),
           turn,
         });
+        await this.processQueuedMessages(task.taskId);
         return;
       }
       case "turn/diff/updated": {
@@ -1443,6 +1589,8 @@ export class BridgeService {
       existing.workspaceRoot = descriptor.cwd ?? existing.workspaceRoot;
       existing.status = mapRuntimeStatus(descriptor.status);
       existing.executionProfile = normalizeExecutionProfile(existing.executionProfile);
+      existing.feishuRunningMessageMode = normalizeFeishuRunningMessageMode(existing.feishuRunningMessageMode);
+      existing.queuedMessageCount = this.getQueuedMessageCount(existing.taskId);
       this.touchTask(existing, descriptor.updatedAt);
       return existing;
     }
@@ -1456,6 +1604,7 @@ export class BridgeService {
       executionProfile: {},
     });
     task.status = mapRuntimeStatus(descriptor.status);
+    task.queuedMessageCount = this.getQueuedMessageCount(task.taskId);
     this.tasks.set(task.taskId, task);
     return task;
   }
@@ -1726,6 +1875,8 @@ export class BridgeService {
     this.tasks.delete(task.taskId);
     this.pendingConversationSources.delete(task.taskId);
     this.pendingTurnReplyPolicies.delete(task.taskId);
+    this.queuedMessages.delete(task.taskId);
+    this.queuedMessageDrains.delete(task.taskId);
     if (task.activeTurnId) {
       this.turnReplyPolicies.delete(task.activeTurnId);
       this.pendingTurnStarts.delete(task.activeTurnId);
@@ -2051,6 +2202,19 @@ conn.close()
     const snapshot = {
       seq: this.seq,
       tasks: [...this.tasks.values()],
+      queuedMessagesByTaskId: Object.fromEntries(
+        [...this.queuedMessages.entries()]
+          .filter(([, queuedMessages]) => queuedMessages.length > 0)
+          .map(([taskId, queuedMessages]) => [
+            taskId,
+            queuedMessages.map((message) => ({
+              surface: message.surface,
+              replyToFeishu: message.replyToFeishu,
+              content: message.content,
+              assetIds: [...message.assetIds],
+            })),
+          ]),
+      ),
     } satisfies PersistedState;
 
     this.persistChain = this.persistChain.catch(() => undefined).then(() => writeJsonFile(this.stateFile, snapshot));
