@@ -10,7 +10,7 @@
 - 在有机器人的飞书群里新建话题、发布一条消息，远程发起一个新任务
 - 在 VSCode 里打开监视器，查看会话、审批和 diff，也能导入和监视主机上已有的 Codex 线程
 - 离开工位前，把主机上正在跑的任务同步到飞书，之后在手机上继续监工
-- 不在工位时，在有机器人的飞书群里新建话题、发布一条消息，远程启动 Codex 线程，并通过对话完成你想做的工作
+- 不在工位时，通过 APP 和 Codex Agent 对话，完成你想做的工作
 
 ## 最快开始
 
@@ -44,7 +44,43 @@ FEISHU_DEFAULT_CHAT_ID=oc_xxx
 - 目标飞书群已经在群设置里开启“话题模式”
 - 飞书后台已经开启 long-connection 的 `im.message.receive_v1` 和 `card.action.trigger`
 
-### 2. 一键启动并打开 monitor
+### 2. 选择 Docker-主机权限模式
+
+两种模式都保留 `bridge-daemon` 在 Docker 里运行，区别只在“后续 turn 到底在哪一侧执行”。
+
+先补这两个公共配置：
+
+```env
+HOST_CODEX_HOME=/home/you/.codex
+HOST_CODEX_BIN_DIR=/path/to/codex-package
+```
+
+模式 A：`stdio`
+
+- 默认推荐，大多数第一次使用直接选它
+- 适合常规 bridge 任务、飞书新任务、桌面端接管
+- 后续 turn 由 Docker 内 daemon 直接管理 `codex app-server`
+
+```env
+BRIDGE_CODEX_HOME=/codex-home
+CODEX_RUNTIME_BACKEND=stdio
+CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js
+```
+
+模式 B：`socket-proxy`
+
+- 适合“先在宿主机 CLI 起了 full-access 线程，之后再导入并绑定 Feishu”
+- 这种模式下，真正执行任务的 `codex app-server` 继续保留宿主机文件视野
+- Docker 里仍然只负责 daemon、Feishu、HTTP 和 WebSocket
+
+```env
+CODEX_RUNTIME_BACKEND=socket-proxy
+CODEX_RUNTIME_PROXY_SOCKET=/workspace/codex-feishu-bridge/.tmp/codex-runtime-proxy.sock
+```
+
+如果你只是第一次跑通项目，先选 `stdio` 即可。
+
+### 3. 一键启动方案 A：命令行直接启动并打开 monitor
 
 运行：
 
@@ -60,14 +96,14 @@ npm run monitor:all
 
 它会自动启动 bridge、等待 `/health` 就绪，并直接打开 monitor。
 
-### 3. 一键在 VSCode 里使用
+### 4. 一键启动方案 B：在 VSCode 里按 `F5`
 
 1. 用 VSCode 打开这个仓库
 2. 直接按 `F5`
 3. 会自动弹出一个新的 VSCode 窗口
 4. monitor 会自动打开，不需要再手动运行命令
 
-### 4. 开始在飞书里用
+### 5. 开始在飞书里用
 
 1. 在有机器人的目标飞书群里确认已经开启“话题模式”，然后新建话题，或者先发一条普通文本
 2. bridge 会回复一张配置卡片
@@ -197,7 +233,9 @@ docker compose -f docker/compose.yaml --env-file docker/.env ...
 
 ### 真实 Runtime 与验证
 
-要复用宿主机上的 Codex 登录态和二进制，请在 `docker/.env` 中设置：
+这里对应前面快速开始里提到的两种 Docker-主机权限模式。
+
+模式 A：`stdio`
 
 ```bash
 HOST_CODEX_HOME=/home/you/.codex
@@ -206,6 +244,27 @@ BRIDGE_CODEX_HOME=/codex-home
 CODEX_RUNTIME_BACKEND=stdio
 CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js
 ```
+
+适合：
+
+- 直接从 bridge / VSCode / Feishu 发起新任务
+- 大多数日常使用场景
+- 希望 daemon 在 Docker 内直接管理真实 `codex app-server`
+
+模式 B：`socket-proxy`
+
+```bash
+HOST_CODEX_HOME=/home/you/.codex
+HOST_CODEX_BIN_DIR=/path/to/codex-package
+CODEX_RUNTIME_BACKEND=socket-proxy
+CODEX_RUNTIME_PROXY_SOCKET=/workspace/codex-feishu-bridge/.tmp/codex-runtime-proxy.sock
+```
+
+适合：
+
+- 先在宿主机 CLI 里启动了一条 full-access 线程
+- 之后把这条线程导入 bridge，再绑定到 Feishu
+- 希望后续 Feishu / VSCode turn 继续看到宿主机原始路径，而不是 Docker 挂载视野
 
 然后启动 runtime 并检查认证接口：
 

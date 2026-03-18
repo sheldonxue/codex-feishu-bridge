@@ -54,7 +54,55 @@ Common mobile scenarios include:
 
 Before the first real Feishu run, make sure the target group has topic mode enabled in the group settings.
 
-Use the one-click bootstrap entry by default:
+### 1. Fill the minimum Feishu config
+
+Edit `docker/.env` and at least set:
+
+```env
+FEISHU_APP_ID=your App ID
+FEISHU_APP_SECRET=your App Secret
+FEISHU_DEFAULT_CHAT_NAME=your Feishu group name
+```
+
+If you already know the chat id, you can use `FEISHU_DEFAULT_CHAT_ID=oc_xxx` instead.
+
+### 2. Choose the Docker-host permission mode
+
+Both modes keep `bridge-daemon` inside Docker. The difference is where later turns execute.
+
+Set these shared values first:
+
+```env
+HOST_CODEX_HOME=/home/you/.codex
+HOST_CODEX_BIN_DIR=/path/to/codex-package
+```
+
+Mode A: `stdio`
+
+- recommended default for most users
+- best for normal bridge tasks, fresh Feishu tasks, and desktop takeover
+- later turns are handled by the Docker-side daemon directly managing `codex app-server`
+
+```env
+BRIDGE_CODEX_HOME=/codex-home
+CODEX_RUNTIME_BACKEND=stdio
+CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js
+```
+
+Mode B: `socket-proxy`
+
+- best when you started a full-access thread in the host CLI first, then imported and bound it to Feishu later
+- keeps the real executing `codex app-server` on the host side, so later turns keep the host file visibility
+- Docker still owns the daemon, Feishu bridge, HTTP, and WebSocket surfaces
+
+```env
+CODEX_RUNTIME_BACKEND=socket-proxy
+CODEX_RUNTIME_PROXY_SOCKET=/workspace/codex-feishu-bridge/.tmp/codex-runtime-proxy.sock
+```
+
+If this is your first run, choose `stdio`.
+
+### 3. One-click startup path A: start from the terminal and open the monitor
 
 ```bash
 ./scripts/dev-stack.sh monitor
@@ -66,7 +114,7 @@ If you prefer npm commands, you can run:
 npm run monitor:all
 ```
 
-This path now handles:
+This path handles:
 
 - creating `docker/.env` when it is missing
 - starting `workspace-dev`
@@ -76,14 +124,20 @@ This path now handles:
 - waiting for `/health`
 - opening the monitor automatically
 
-Before the first real run, edit `docker/.env` if you need real Feishu credentials or real `stdio` runtime settings.
-
-Then:
+### 4. One-click startup path B: open the repo in VSCode and press `F5`
 
 1. Open the repository in VSCode.
 2. Press `F5` on `Codex Feishu Bridge Extension`.
 3. The launch target now runs the same one-click bootstrap as a VSCode `preLaunchTask`.
 4. The Extension Development Host opens the monitor automatically.
+
+### 5. Start using Feishu
+
+1. Confirm the target Feishu group already has topic mode enabled.
+2. Create a topic or send a plain-text message in the bot-enabled group.
+3. Let bridge reply with a configuration card.
+4. Press `Create on Host`.
+5. Continue the work in the same thread.
 
 Companion commands:
 
@@ -114,7 +168,9 @@ For real `stdio` and Feishu runs, or if you want full manual control, prefer cal
 
 ## Runtime and Validation
 
-To run against a real host Codex login and binary, provide these environment variables in `docker/.env`:
+This section expands the same two Docker-host permission modes from Quick Start.
+
+Mode A: `stdio`
 
 ```bash
 HOST_CODEX_HOME=/home/you/.codex
@@ -124,7 +180,13 @@ CODEX_RUNTIME_BACKEND=stdio
 CODEX_APP_SERVER_BIN=/opt/host-codex-bin/bin/codex.js
 ```
 
-If your main goal is "import a host CLI thread, bind it to Feishu, and still keep the original host file visibility for later turns", prefer:
+Use it when:
+
+- you mostly create tasks from bridge, VSCode, or Feishu
+- you want the Docker-side daemon to manage the real `codex app-server`
+- you are on the default path and do not need imported host threads to preserve host-only file visibility
+
+Mode B: `socket-proxy`
 
 ```bash
 HOST_CODEX_HOME=/home/you/.codex
