@@ -600,6 +600,13 @@ function messageTextFromResponseContent(content: unknown): string {
   return parts.join("\n").trim();
 }
 
+function prefersExistingConversationSurface(
+  existing: ConversationMessage,
+  next: ConversationMessage,
+): boolean {
+  return existing.author === next.author && existing.surface !== "runtime" && next.surface === "runtime";
+}
+
 function parseRolloutConversationSeed(line: string, defaultSurface = "runtime" as MessageSurface): {
   message: RolloutConversationSeed | null;
   sessionSurface?: MessageSurface;
@@ -1716,7 +1723,14 @@ export class BridgeService {
   private upsertConversation(task: BridgeTask, message: ConversationMessage): void {
     const existingIndex = task.conversation.findIndex((entry) => entry.messageId === message.messageId);
     if (existingIndex >= 0) {
-      task.conversation[existingIndex] = message;
+      const existing = task.conversation[existingIndex];
+      task.conversation[existingIndex] = {
+        ...message,
+        createdAt: existing.createdAt,
+        content: message.content || existing.content,
+        assetIds: message.assetIds?.length ? message.assetIds : existing.assetIds,
+        surface: prefersExistingConversationSurface(existing, message) ? existing.surface : message.surface,
+      };
       return;
     }
 

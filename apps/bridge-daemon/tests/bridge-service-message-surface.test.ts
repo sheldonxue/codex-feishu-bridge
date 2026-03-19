@@ -113,6 +113,18 @@ class SurfaceAwareRuntime implements CodexRuntime {
         },
       });
       this.emit({
+        method: "item/started",
+        params: {
+          threadId: params.threadId,
+          turnId,
+          item: {
+            id: `user-${turnId}`,
+            type: "userMessage",
+            content: params.input,
+          },
+        },
+      });
+      this.emit({
         method: "item/completed",
         params: {
           threadId: params.threadId,
@@ -121,6 +133,18 @@ class SurfaceAwareRuntime implements CodexRuntime {
             id: `user-${turnId}`,
             type: "userMessage",
             content: params.input,
+          },
+        },
+      });
+      this.emit({
+        method: "item/started",
+        params: {
+          threadId: params.threadId,
+          turnId,
+          item: {
+            id: `agent-${turnId}`,
+            type: "agentMessage",
+            text: `Runtime reply for ${prompt}`,
           },
         },
       });
@@ -162,6 +186,18 @@ class SurfaceAwareRuntime implements CodexRuntime {
     const prompt = textInput?.text ?? "no prompt";
     queueMicrotask(() => {
       this.emit({
+        method: "item/started",
+        params: {
+          threadId: params.threadId,
+          turnId: params.turnId,
+          item: {
+            id: `user-${params.turnId}-${this.turnCounter}`,
+            type: "userMessage",
+            content: params.input,
+          },
+        },
+      });
+      this.emit({
         method: "item/completed",
         params: {
           threadId: params.threadId,
@@ -170,6 +206,18 @@ class SurfaceAwareRuntime implements CodexRuntime {
             id: `user-${params.turnId}-${this.turnCounter}`,
             type: "userMessage",
             content: params.input,
+          },
+        },
+      });
+      this.emit({
+        method: "item/started",
+        params: {
+          threadId: params.threadId,
+          turnId: params.turnId,
+          item: {
+            id: `agent-${params.turnId}-${this.turnCounter}`,
+            type: "agentMessage",
+            text: `Runtime reply for ${prompt}`,
           },
         },
       });
