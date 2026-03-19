@@ -1456,6 +1456,82 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("keeps a bound imported task running across repeated syncs while rollout activity still shows an active turn", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-imported-rollout-stable-running-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-import-stable-running.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+    await writeFile(
+      rolloutDiskPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-19T01:10:00.000Z",
+          type: "event_msg",
+          payload: {
+            type: "task_started",
+            turn_id: "turn-rollout-stable-1",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T01:10:00.001Z",
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "VSCode is still processing this imported turn",
+            local_images: [],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    writeThreadStateRow(config, {
+      threadId: "thread-rollout-stable",
+      rolloutPath: `/codex-home/${rolloutRelativePath}`,
+    });
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-rollout-stable",
+        name: "Imported stable running thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T01:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    await service.bindFeishuThread("thread-rollout-stable", {
+      chatId: "oc_stable_chat",
+      threadKey: "omt_stable_thread",
+      rootMessageId: "om_stable_root",
+    });
+
+    const firstSync = await service.syncRuntimeThreads();
+    const firstTask = firstSync.find((task) => task.taskId === "thread-rollout-stable");
+    assert.equal(firstTask?.status, "running");
+    assert.equal(firstTask?.activeTurnId, "turn-rollout-stable-1");
+
+    const secondSync = await service.syncRuntimeThreads();
+    const secondTask = secondSync.find((task) => task.taskId === "thread-rollout-stable");
+    assert.equal(secondTask?.status, "running");
+    assert.equal(secondTask?.activeTurnId, "turn-rollout-stable-1");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("backfills empty imported conversations from host absolute rollout paths during sync", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);

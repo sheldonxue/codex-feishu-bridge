@@ -1215,7 +1215,7 @@ export class BridgeService {
         return;
       }
       this.upsertTaskFromDescriptor(descriptor, task.mode);
-      if (task.mode === "manual-import" && !isTaskBusyForQueuedFeishuMessage(task)) {
+      if (task.mode === "manual-import") {
         this.promoteImportedTaskBusyState(task, await this.readImportedTaskActivityFromRollout(task));
       }
     } catch (error) {
@@ -2085,11 +2085,6 @@ export class BridgeService {
         changed = true;
         taskChanged = true;
       }
-      if (task.status !== nextStatus) {
-        task.status = nextStatus;
-        changed = true;
-        taskChanged = true;
-      }
       const shouldRefreshImportedConversation =
         this.shouldRefreshImportedConversation(task, nextUpdatedAt);
 
@@ -2134,21 +2129,11 @@ export class BridgeService {
       if (
         importedRolloutActivity === undefined &&
         task.mode === "manual-import" &&
-        Boolean(task.feishuBinding) &&
-        !isTaskBusyForQueuedFeishuMessage({
-          status: nextStatus,
-          activeTurnId: task.activeTurnId,
-        })
+        Boolean(task.feishuBinding)
       ) {
         importedRolloutActivity = await this.readImportedTaskActivityFromRollout(task);
       }
-      if (
-        importedRolloutActivity?.status === "running" &&
-        !isTaskBusyForQueuedFeishuMessage({
-          status: nextStatus,
-          activeTurnId: task.activeTurnId,
-        })
-      ) {
+      if (importedRolloutActivity?.status === "running") {
         nextStatus = "running";
         if (importedRolloutActivity.activeTurnId && task.activeTurnId !== importedRolloutActivity.activeTurnId) {
           task.activeTurnId = importedRolloutActivity.activeTurnId;
