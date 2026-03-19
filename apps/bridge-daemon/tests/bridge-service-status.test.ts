@@ -84,6 +84,7 @@ class FakeStatusRuntime implements CodexRuntime {
   private requiresResumeBeforeStartTurn = false;
   private readonly resumedThreadIds = new Set<string>();
   private lastStartTurnApprovalPolicy: ApprovalPolicy | undefined;
+  private startTurnCallCount = 0;
 
   async start(): Promise<void> {}
 
@@ -164,6 +165,7 @@ class FakeStatusRuntime implements CodexRuntime {
     if (this.requiresResumeBeforeStartTurn && !this.resumedThreadIds.has(params.threadId)) {
       throw new Error(`thread not found: ${params.threadId}`);
     }
+    this.startTurnCallCount += 1;
     this.lastStartTurnApprovalPolicy = params.approvalPolicy;
     return {
       id: "turn-1",
@@ -212,6 +214,10 @@ class FakeStatusRuntime implements CodexRuntime {
 
   getLastStartTurnApprovalPolicy(): ApprovalPolicy | undefined {
     return this.lastStartTurnApprovalPolicy;
+  }
+
+  getStartTurnCallCount(): number {
+    return this.startTurnCallCount;
   }
 }
 
@@ -1264,6 +1270,163 @@ describe("bridge service runtime status mapping", () => {
     );
     assert.equal(refreshedTask?.latestSummary, "Second imported answer");
     assert.equal(refreshedTask?.updatedAt, "2026-03-19T00:00:04.000Z");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
+  it("marks a feishu-bound imported task as running when the rollout shows an active external turn", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-bound-import-rollout-activity-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-bound-import-busy.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+    await writeFile(
+      rolloutDiskPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-19T01:00:00.000Z",
+          type: "event_msg",
+          payload: {
+            type: "task_started",
+            turn_id: "turn-rollout-busy-1",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T01:00:00.001Z",
+          type: "turn_context",
+          payload: {
+            turn_id: "turn-rollout-busy-1",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T01:00:00.002Z",
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Still thinking on the imported host thread",
+            local_images: [],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    writeThreadStateRow(config, {
+      threadId: "thread-bound-busy",
+      rolloutPath: `/codex-home/${rolloutRelativePath}`,
+    });
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-bound-busy",
+        name: "Bound imported busy thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T01:00:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    await service.bindFeishuThread("thread-bound-busy", {
+      chatId: "oc_busy_chat",
+      threadKey: "omt_busy_thread",
+      rootMessageId: "om_busy_root",
+    });
+
+    const synced = await service.syncRuntimeThreads();
+    const syncedTask = synced.find((task) => task.taskId === "thread-bound-busy");
+    assert.equal(syncedTask?.status, "running");
+    assert.equal(syncedTask?.activeTurnId, "turn-rollout-busy-1");
+    assert.equal(service.getTask("thread-bound-busy")?.status, "running");
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
+  it("queues feishu messages when an imported host rollout shows an active external turn", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-imported-rollout-queue-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-import-queue-busy.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+    await writeFile(
+      rolloutDiskPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-19T01:05:00.000Z",
+          type: "event_msg",
+          payload: {
+            type: "task_started",
+            turn_id: "turn-rollout-queue-1",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T01:05:00.001Z",
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Host VSCode is still processing this turn",
+            local_images: [],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    writeThreadStateRow(config, {
+      threadId: "thread-rollout-queue",
+      rolloutPath: `/codex-home/${rolloutRelativePath}`,
+    });
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-rollout-queue",
+        name: "Imported queue thread",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T01:05:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    await service.bindFeishuThread("thread-rollout-queue", {
+      chatId: "oc_queue_chat",
+      threadKey: "omt_queue_thread",
+      rootMessageId: "om_queue_root",
+    });
+
+    const queued = await service.sendMessage("thread-rollout-queue", {
+      content: "Check the latest training progress",
+      source: "feishu",
+      replyToFeishu: true,
+      receiptId: "receipt-rollout-queue",
+    });
+
+    assert.equal(queued.queuedMessageCount, 1);
+    assert.equal(queued.status, "running");
+    assert.equal(queued.activeTurnId, "turn-rollout-queue-1");
+    assert.equal(runtime.getStartTurnCallCount(), 0);
 
     await service.dispose();
     await runtime.dispose();

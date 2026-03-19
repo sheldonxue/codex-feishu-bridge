@@ -143,6 +143,7 @@ interface ImportedConversationRefreshResult {
   changed: boolean;
   appendedMessages: ConversationMessage[];
   latestMessageCreatedAt?: string;
+  activity: ImportedRolloutActivity;
 }
 
 interface RuntimeThreadUpdate {
@@ -164,9 +165,16 @@ interface RolloutConversationSeed {
   createdAt: string;
 }
 
+interface ImportedRolloutActivity {
+  status: "running" | "idle";
+  activeTurnId?: string;
+  latestActivityAt?: string;
+}
+
 interface RolloutConversationReadResult {
   messages: RolloutConversationSeed[];
   taskOrigin?: BridgeTask["taskOrigin"];
+  activity: ImportedRolloutActivity;
 }
 
 function isSandboxMode(value: string | undefined): value is SandboxMode {
@@ -655,54 +663,94 @@ function isMirroredRolloutMessagePair(
   );
 }
 
-function parseRolloutConversationSeed(line: string, defaultSurface = "runtime" as MessageSurface): {
-  message: RolloutConversationSeed | null;
-  sessionSurface?: MessageSurface;
-} {
+function parseRolloutRecord(line: string): Record<string, unknown> | null {
   let record: unknown;
   try {
     record = JSON.parse(line);
   } catch {
-    return { message: null };
+    return null;
   }
 
-  if (!record || typeof record !== "object") {
-    return { message: null };
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return null;
   }
 
-  const type = "type" in record ? (record as { type?: unknown }).type : undefined;
+  return record as Record<string, unknown>;
+}
+
+function rolloutTimestampFromRecord(record: Record<string, unknown>): string {
+  return typeof record.timestamp === "string" ? record.timestamp : new Date().toISOString();
+}
+
+function parseImportedRolloutActivity(record: Record<string, unknown>): ImportedRolloutActivity | null {
+  if (record.type !== "event_msg") {
+    return null;
+  }
+
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const payloadRecord = payload as Record<string, unknown>;
+  const turnId = typeof payloadRecord.turn_id === "string" ? payloadRecord.turn_id : undefined;
+  if (!turnId) {
+    return null;
+  }
+
+  if (payloadRecord.type === "task_started") {
+    return {
+      status: "running",
+      activeTurnId: turnId,
+      latestActivityAt: rolloutTimestampFromRecord(record),
+    };
+  }
+
+  if (payloadRecord.type === "task_complete") {
+    return {
+      status: "idle",
+      activeTurnId: turnId,
+      latestActivityAt: rolloutTimestampFromRecord(record),
+    };
+  }
+
+  return null;
+}
+
+function parseRolloutConversationSeed(record: Record<string, unknown>, defaultSurface = "runtime" as MessageSurface): {
+  message: RolloutConversationSeed | null;
+  sessionSurface?: MessageSurface;
+} {
+  const type = record.type;
   if (type === "session_meta") {
-    const payload = "payload" in record ? (record as { payload?: unknown }).payload : undefined;
-    if (!payload || typeof payload !== "object") {
+    const payload = record.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return { message: null };
     }
     return {
       message: null,
       sessionSurface: normalizeRolloutSurface(
-        "source" in payload ? (payload as { source?: unknown }).source : undefined,
-        "originator" in payload ? (payload as { originator?: unknown }).originator : undefined,
+        (payload as { source?: unknown }).source,
+        (payload as { originator?: unknown }).originator,
       ),
     };
   }
 
-  const timestamp =
-    "timestamp" in record && typeof (record as { timestamp?: unknown }).timestamp === "string"
-      ? (record as { timestamp: string }).timestamp
-      : new Date().toISOString();
+  const timestamp = rolloutTimestampFromRecord(record);
   if (type === "event_msg") {
-    const payload = "payload" in record ? (record as { payload?: unknown }).payload : undefined;
-    if (!payload || typeof payload !== "object") {
+    const payload = record.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return { message: null };
     }
 
-    const payloadType = "type" in payload ? (payload as { type?: unknown }).type : undefined;
+    const payloadType = (payload as { type?: unknown }).type;
     if (payloadType === "user_message") {
       const message =
-        "message" in payload && typeof (payload as { message?: unknown }).message === "string"
+        typeof (payload as { message?: unknown }).message === "string"
           ? (payload as { message: string }).message.trim()
           : "";
       const localImages =
-        "local_images" in payload && Array.isArray((payload as { local_images?: unknown[] }).local_images)
+        Array.isArray((payload as { local_images?: unknown[] }).local_images)
           ? (payload as { local_images?: unknown[] }).local_images?.length ?? 0
           : 0;
       const content = message || fallbackConversationContent(localImages);
@@ -742,18 +790,18 @@ function parseRolloutConversationSeed(line: string, defaultSurface = "runtime" a
     return { message: null };
   }
 
-  const payload = "payload" in record ? (record as { payload?: unknown }).payload : undefined;
-  if (!payload || typeof payload !== "object") {
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return { message: null };
   }
 
-  const payloadType = "type" in payload ? (payload as { type?: unknown }).type : undefined;
+  const payloadType = (payload as { type?: unknown }).type;
   if (payloadType !== "message") {
     return { message: null };
   }
 
-  const role = "role" in payload ? (payload as { role?: unknown }).role : undefined;
-  const text = messageTextFromResponseContent("content" in payload ? (payload as { content?: unknown }).content : undefined);
+  const role = (payload as { role?: unknown }).role;
+  const text = messageTextFromResponseContent((payload as { content?: unknown }).content);
   if (!text) {
     return { message: null };
   }
@@ -1161,9 +1209,15 @@ export class BridgeService {
     try {
       const descriptor = await this.options.runtime.readThread(task.threadId);
       if (!descriptor) {
+        if (task.mode === "manual-import") {
+          this.promoteImportedTaskBusyState(task, await this.readImportedTaskActivityFromRollout(task));
+        }
         return;
       }
       this.upsertTaskFromDescriptor(descriptor, task.mode);
+      if (task.mode === "manual-import" && !isTaskBusyForQueuedFeishuMessage(task)) {
+        this.promoteImportedTaskBusyState(task, await this.readImportedTaskActivityFromRollout(task));
+      }
     } catch (error) {
       this.options.logger.warn("failed to refresh task runtime status before feishu queue decision", {
         taskId: task.taskId,
@@ -2015,7 +2069,7 @@ export class BridgeService {
 
       const nextTitle = runtimeThread.name ?? task.title;
       const nextWorkspaceRoot = runtimeThread.cwd ?? task.workspaceRoot;
-      const nextStatus = mapRuntimeStatus(runtimeThread.status);
+      let nextStatus = mapRuntimeStatus(runtimeThread.status);
       const nextUpdatedAt = runtimeThread.updatedAt ?? task.updatedAt;
       let effectiveUpdatedAt = nextUpdatedAt;
       let importedConversationDelta: ConversationMessage[] = [];
@@ -2052,6 +2106,33 @@ export class BridgeService {
             effectiveUpdatedAt = refreshResult.latestMessageCreatedAt ?? new Date().toISOString();
           }
         }
+        if (
+          refreshResult.activity.status === "running" &&
+          !isTaskBusyForQueuedFeishuMessage({
+            status: nextStatus,
+            activeTurnId: task.activeTurnId,
+          })
+        ) {
+          nextStatus = "running";
+          if (refreshResult.activity.activeTurnId && task.activeTurnId !== refreshResult.activity.activeTurnId) {
+            task.activeTurnId = refreshResult.activity.activeTurnId;
+            changed = true;
+            taskChanged = true;
+          }
+          if (
+            refreshResult.activity.latestActivityAt &&
+            effectiveUpdatedAt !== refreshResult.activity.latestActivityAt
+          ) {
+            effectiveUpdatedAt = refreshResult.activity.latestActivityAt;
+            changed = true;
+            taskChanged = true;
+          }
+        }
+      }
+      if (task.status !== nextStatus) {
+        task.status = nextStatus;
+        changed = true;
+        taskChanged = true;
       }
       if (nextStatus === "idle" || nextStatus === "completed" || nextStatus === "failed" || nextStatus === "interrupted") {
         if (task.activeTurnId) {
@@ -2271,6 +2352,9 @@ export class BridgeService {
         changed: false,
         appendedMessages: [],
         latestMessageCreatedAt: undefined,
+        activity: {
+          status: "idle",
+        },
       };
     }
 
@@ -2281,10 +2365,13 @@ export class BridgeService {
           changed: false,
           appendedMessages: [],
           latestMessageCreatedAt: undefined,
+          activity: {
+            status: "idle",
+          },
         };
       }
 
-      const { messages, taskOrigin } = await this.readConversationFromRollout(task, rolloutPath);
+      const { messages, taskOrigin, activity } = await this.readConversationFromRollout(task, rolloutPath);
       if (taskOrigin && task.taskOrigin !== taskOrigin) {
         task.taskOrigin = taskOrigin;
       }
@@ -2293,6 +2380,7 @@ export class BridgeService {
           changed: false,
           appendedMessages: [],
           latestMessageCreatedAt: undefined,
+          activity,
         };
       }
 
@@ -2308,6 +2396,7 @@ export class BridgeService {
           changed: false,
           appendedMessages: [],
           latestMessageCreatedAt: nextConversation.at(-1)?.createdAt,
+          activity,
         };
       }
 
@@ -2322,6 +2411,7 @@ export class BridgeService {
         changed: true,
         appendedMessages,
         latestMessageCreatedAt: nextConversation.at(-1)?.createdAt,
+        activity,
       };
     } catch (error) {
       this.options.logger.warn("failed to hydrate imported task conversation", {
@@ -2333,6 +2423,9 @@ export class BridgeService {
         changed: false,
         appendedMessages: [],
         latestMessageCreatedAt: undefined,
+        activity: {
+          status: "idle",
+        },
       };
     }
   }
@@ -2420,6 +2513,8 @@ export class BridgeService {
   ): Promise<RolloutConversationReadResult> {
     const messages: RolloutConversationSeed[] = [];
     let sessionSurface: MessageSurface | undefined;
+    let activeTurnId: string | undefined;
+    let latestActivityAt: string | undefined;
     const stream = createReadStream(rolloutPath, { encoding: "utf8" });
     const lines = createInterface({
       input: stream,
@@ -2428,7 +2523,20 @@ export class BridgeService {
 
     try {
       for await (const line of lines) {
-        const parsed = parseRolloutConversationSeed(line, sessionSurface ?? "runtime");
+        const record = parseRolloutRecord(line);
+        if (!record) {
+          continue;
+        }
+        const activityUpdate = parseImportedRolloutActivity(record);
+        if (activityUpdate) {
+          latestActivityAt = activityUpdate.latestActivityAt ?? latestActivityAt;
+          if (activityUpdate.status === "running") {
+            activeTurnId = activityUpdate.activeTurnId;
+          } else if (!activityUpdate.activeTurnId || activityUpdate.activeTurnId === activeTurnId) {
+            activeTurnId = undefined;
+          }
+        }
+        const parsed = parseRolloutConversationSeed(record, sessionSurface ?? "runtime");
         if (parsed.sessionSurface) {
           sessionSurface = parsed.sessionSurface;
         }
@@ -2449,7 +2557,83 @@ export class BridgeService {
     return {
       messages,
       taskOrigin: rolloutTaskOriginFromSurface(sessionSurface, task.mode),
+      activity: {
+        status: activeTurnId ? "running" : "idle",
+        ...(activeTurnId ? { activeTurnId } : {}),
+        ...(latestActivityAt ? { latestActivityAt } : {}),
+      },
     };
+  }
+
+  private async readImportedTaskActivityFromRollout(task: BridgeTask): Promise<ImportedRolloutActivity | null> {
+    if (task.mode !== "manual-import") {
+      return null;
+    }
+
+    const rolloutPath = await this.findThreadRolloutPath(task.threadId);
+    if (!rolloutPath || !existsSync(rolloutPath)) {
+      return null;
+    }
+
+    const stream = createReadStream(rolloutPath, { encoding: "utf8" });
+    const lines = createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
+    let activeTurnId: string | undefined;
+    let latestActivityAt: string | undefined;
+
+    try {
+      for await (const line of lines) {
+        const record = parseRolloutRecord(line);
+        if (!record) {
+          continue;
+        }
+        const activityUpdate = parseImportedRolloutActivity(record);
+        if (!activityUpdate) {
+          continue;
+        }
+        latestActivityAt = activityUpdate.latestActivityAt ?? latestActivityAt;
+        if (activityUpdate.status === "running") {
+          activeTurnId = activityUpdate.activeTurnId;
+        } else if (!activityUpdate.activeTurnId || activityUpdate.activeTurnId === activeTurnId) {
+          activeTurnId = undefined;
+        }
+      }
+    } finally {
+      lines.close();
+      stream.close();
+    }
+
+    return {
+      status: activeTurnId ? "running" : "idle",
+      ...(activeTurnId ? { activeTurnId } : {}),
+      ...(latestActivityAt ? { latestActivityAt } : {}),
+    };
+  }
+
+  private promoteImportedTaskBusyState(
+    task: BridgeTask,
+    activity: ImportedRolloutActivity | null | undefined,
+  ): boolean {
+    if (!activity || activity.status !== "running") {
+      return false;
+    }
+
+    let changed = false;
+    if (!isTaskBusyForQueuedFeishuMessage(task)) {
+      task.status = "running";
+      changed = true;
+    }
+    if (activity.activeTurnId && task.activeTurnId !== activity.activeTurnId) {
+      task.activeTurnId = activity.activeTurnId;
+      changed = true;
+    }
+    if (activity.latestActivityAt && task.updatedAt !== activity.latestActivityAt) {
+      this.touchTask(task, activity.latestActivityAt);
+      changed = true;
+    }
+    return changed;
   }
 
   private async hydrateImportedTaskExecutionProfile(task: BridgeTask): Promise<boolean> {
