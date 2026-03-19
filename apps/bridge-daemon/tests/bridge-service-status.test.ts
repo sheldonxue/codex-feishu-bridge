@@ -1275,7 +1275,7 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
-  it("marks a feishu-bound imported task as running when the rollout shows an active external turn", async () => {
+  it("marks a feishu-bound imported task as running from rollout activity even after live conversation entries exist", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
     const logger = createConsoleLogger("bridge-service-bound-import-rollout-activity-test");
@@ -1342,6 +1342,30 @@ describe("bridge service runtime status mapping", () => {
       chatId: "oc_busy_chat",
       threadKey: "omt_busy_thread",
       rootMessageId: "om_busy_root",
+    });
+    const internalTask = (
+      service as unknown as {
+        tasks: Map<
+          string,
+          {
+            conversation: Array<{
+              messageId: string;
+              author: string;
+              surface: string;
+              content: string;
+              createdAt: string;
+            }>;
+          }
+        >;
+      }
+    ).tasks.get("thread-bound-busy");
+    assert.ok(internalTask);
+    internalTask.conversation.push({
+      messageId: "live-feishu-message",
+      author: "user",
+      surface: "feishu",
+      content: "Live follow-up from Feishu",
+      createdAt: "2026-03-19T01:00:10.000Z",
     });
 
     const synced = await service.syncRuntimeThreads();

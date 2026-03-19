@@ -2073,6 +2073,7 @@ export class BridgeService {
       const nextUpdatedAt = runtimeThread.updatedAt ?? task.updatedAt;
       let effectiveUpdatedAt = nextUpdatedAt;
       let importedConversationDelta: ConversationMessage[] = [];
+      let importedRolloutActivity: ImportedRolloutActivity | null | undefined;
 
       if (!task.titleLocked && task.title !== nextTitle) {
         task.title = nextTitle;
@@ -2098,6 +2099,7 @@ export class BridgeService {
       }
       if (shouldRefreshImportedConversation) {
         const refreshResult = await this.refreshImportedTaskConversation(task);
+        importedRolloutActivity = refreshResult.activity;
         if (refreshResult.changed) {
           importedConversationDelta = refreshResult.appendedMessages;
           changed = true;
@@ -2127,6 +2129,36 @@ export class BridgeService {
             changed = true;
             taskChanged = true;
           }
+        }
+      }
+      if (
+        importedRolloutActivity === undefined &&
+        task.mode === "manual-import" &&
+        Boolean(task.feishuBinding) &&
+        !isTaskBusyForQueuedFeishuMessage({
+          status: nextStatus,
+          activeTurnId: task.activeTurnId,
+        })
+      ) {
+        importedRolloutActivity = await this.readImportedTaskActivityFromRollout(task);
+      }
+      if (
+        importedRolloutActivity?.status === "running" &&
+        !isTaskBusyForQueuedFeishuMessage({
+          status: nextStatus,
+          activeTurnId: task.activeTurnId,
+        })
+      ) {
+        nextStatus = "running";
+        if (importedRolloutActivity.activeTurnId && task.activeTurnId !== importedRolloutActivity.activeTurnId) {
+          task.activeTurnId = importedRolloutActivity.activeTurnId;
+          changed = true;
+          taskChanged = true;
+        }
+        if (importedRolloutActivity.latestActivityAt && effectiveUpdatedAt !== importedRolloutActivity.latestActivityAt) {
+          effectiveUpdatedAt = importedRolloutActivity.latestActivityAt;
+          changed = true;
+          taskChanged = true;
         }
       }
       if (task.status !== nextStatus) {
