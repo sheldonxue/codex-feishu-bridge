@@ -84,6 +84,13 @@ export interface FeishuTaskRenameCardData {
   note?: string;
 }
 
+export interface FeishuTaskPermissionCardData {
+  task: BridgeTask;
+  binding: FeishuThreadBinding;
+  revision: number;
+  note?: string;
+}
+
 export interface FeishuTaskInspectionSnapshotCardData {
   task: BridgeTask;
   queryLabel: string;
@@ -118,6 +125,7 @@ export type FeishuCardActionKind =
   | "task.withdraw-queued-message"
   | "task.rename.open"
   | "task.rename.submit"
+  | "task.permissions.open"
   | "task.status"
   | "task.interrupt"
   | "task.retry"
@@ -643,24 +651,6 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
   ];
   const currentModelLabel = resolveOptionLabel(modelOptions, selectedModel ?? "", "runtime-default");
   const currentEffortLabel = resolveOptionLabel(effortOptions, selectedEffort ?? "", "model-default");
-  const sandboxOptions = [
-    { label: "read-only", value: "read-only" },
-    { label: "workspace-write", value: "workspace-write" },
-    { label: "danger-full-access", value: "danger-full-access" },
-  ];
-  const approvalPolicyOptions = [
-    { label: "untrusted", value: "untrusted" },
-    { label: "on-failure", value: "on-failure" },
-    { label: "on-request", value: "on-request" },
-    { label: "never", value: "never" },
-  ];
-  const currentSandboxLabel = resolveOptionLabel(sandboxOptions, selectedSandbox, DEFAULT_NEW_SANDBOX);
-  const currentApprovalPolicyLabel = resolveOptionLabel(
-    approvalPolicyOptions,
-    selectedApprovalPolicy,
-    DEFAULT_NEW_APPROVAL_POLICY,
-  );
-
   return {
     config: {
       wide_screen_mode: true,
@@ -699,8 +689,14 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           `model: ${currentModelLabel}`,
           `reasoning: ${currentEffortLabel}`,
           `plan mode: ${task.executionProfile.planMode ? "on" : "off"}`,
-          `sandbox: ${currentSandboxLabel}`,
-          `approval: ${currentApprovalPolicyLabel}`,
+        ].join("\n"),
+      ),
+      divider(),
+      markdown(
+        [
+          "**Permissions**",
+          `sandbox: ${selectedSandbox}`,
+          `approval: ${selectedApprovalPolicy}`,
         ].join("\n"),
       ),
       ...(note ? [divider(), markdown(`**Update**\n${note}`)] : []),
@@ -735,58 +731,19 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           }),
         }),
       ]),
-      action([
-        selectStatic({
-          placeholder: `Sandbox: ${currentSandboxLabel}`,
-          initialOption: selectedSandbox,
-          options: sandboxOptions,
-          value: baseActionValue("task.select.sandbox", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
-        selectStatic({
-          placeholder: `Approval: ${currentApprovalPolicyLabel}`,
-          initialOption: selectedApprovalPolicy,
-          options: approvalPolicyOptions,
-          value: baseActionValue("task.select.approval", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
-      ]),
       ...buildApprovalActionRows(task, binding, revision),
-      divider(),
-      action([
-        button({
-          text: "View Status",
-          value: baseActionValue("task.status", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
-        button({
-          text: "Stop Turn",
-          type: "danger",
-          value: baseActionValue("task.interrupt", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
-        button({
-          text: "Retry Last Turn",
-          type: "primary",
-          value: baseActionValue("task.retry", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
-      ]),
       divider(),
       action([
         button({
           text: "Rename Task",
           value: baseActionValue("task.rename.open", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
+        button({
+          text: "Task Permissions",
+          value: baseActionValue("task.permissions.open", binding, {
             taskId: task.taskId,
             revision,
           }),
@@ -798,6 +755,8 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
             revision,
           }),
         }),
+      ]),
+      action([
         button({
           text: "Archive Task",
           type: "danger",
@@ -806,9 +765,6 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
             revision,
           }),
         }),
-      ]),
-      divider(),
-      action([
         overflow({
           text: "More",
           options: [
@@ -869,6 +825,66 @@ export function createTaskRenameCard(data: FeishuTaskRenameCardData): FeishuInte
             }),
           }),
         ]),
+      ]),
+    ],
+  };
+}
+
+export function createTaskPermissionCard(data: FeishuTaskPermissionCardData): FeishuInteractiveCard {
+  const note = truncateNote(data.note);
+  const { task, binding, revision } = data;
+  const selectedSandbox = task.executionProfile.sandbox ?? DEFAULT_NEW_SANDBOX;
+  const selectedApprovalPolicy = task.executionProfile.approvalPolicy ?? DEFAULT_NEW_APPROVAL_POLICY;
+
+  return {
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+    },
+    header: {
+      title: plainText(`Task Permissions: ${task.title}`),
+      template: "blue",
+    },
+    elements: [
+      markdown("Updates the sandbox and approval policy for future turns on this shared task."),
+      divider(),
+      markdown(
+        [
+          "**Current Permissions**",
+          `sandbox: ${selectedSandbox}`,
+          `approval: ${selectedApprovalPolicy}`,
+        ].join("\n"),
+      ),
+      ...(note ? [divider(), markdown(`**Update**\n${note}`)] : []),
+      divider(),
+      action([
+        selectStatic({
+          placeholder: `Sandbox: ${selectedSandbox}`,
+          initialOption: selectedSandbox,
+          options: [
+            { label: "read-only", value: "read-only" },
+            { label: "workspace-write", value: "workspace-write" },
+            { label: "danger-full-access", value: "danger-full-access" },
+          ],
+          value: baseActionValue("task.select.sandbox", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
+        selectStatic({
+          placeholder: `Approval: ${selectedApprovalPolicy}`,
+          initialOption: selectedApprovalPolicy,
+          options: [
+            { label: "untrusted", value: "untrusted" },
+            { label: "on-failure", value: "on-failure" },
+            { label: "on-request", value: "on-request" },
+            { label: "never", value: "never" },
+          ],
+          value: baseActionValue("task.select.approval", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
       ]),
     ],
   };

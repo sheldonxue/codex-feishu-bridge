@@ -9,6 +9,7 @@ import {
   createTaskActivityCard,
   createTaskControlCard,
   createTaskInspectionSnapshotCard,
+  createTaskPermissionCard,
   createTaskRenameCard,
   createTaskStatusSnapshotCard,
 } from "../src/feishu/cards";
@@ -157,12 +158,8 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Model: runtime-default/);
     assert.match(taskJson, /Reasoning: model-default/);
     assert.match(taskJson, /Plan Mode: Off/);
-    assert.match(taskJson, /Sandbox: workspace-write/);
-    assert.match(taskJson, /Approval: on-request/);
     assert.match(taskJson, /Rename Task/);
-    assert.match(taskJson, /View Status/);
-    assert.match(taskJson, /Stop Turn/);
-    assert.match(taskJson, /Retry Last Turn/);
+    assert.match(taskJson, /Task Permissions/);
     assert.match(taskJson, /Archive Task/);
     assert.match(taskJson, /Unbind Thread/);
     assert.match(taskJson, /Pending Approval/);
@@ -195,6 +192,36 @@ describe("feishu card builders", () => {
     assert.match(json, /Apply New Title/);
     assert.match(json, /form_submit/);
     assert.match(json, /Rename submitted from VSCode\./);
+  });
+
+  it("renders a dedicated permissions card with sandbox and approval selectors", () => {
+    const task = createBridgeTask({
+      threadId: "thr-permission-task",
+      title: "Permission title",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+      executionProfile: {
+        sandbox: "danger-full-access",
+        approvalPolicy: "never",
+      },
+    });
+
+    const permissionCard = createTaskPermissionCard({
+      task,
+      binding: BINDING,
+      revision: 2,
+      note: "Permissions updated from Feishu.",
+    });
+
+    const json = JSON.stringify(permissionCard);
+    assert.match(json, /Task Permissions: Permission title/);
+    assert.match(json, /Updates the sandbox and approval policy for future turns on this shared task\./);
+    assert.match(json, /Current Permissions/);
+    assert.match(json, /sandbox: danger-full-access/);
+    assert.match(json, /approval: never/);
+    assert.match(json, /Sandbox: danger-full-access/);
+    assert.match(json, /Approval: never/);
+    assert.match(json, /Permissions updated from Feishu\./);
   });
 
   it("explains the next step when a host task exists but the first turn has not started yet", () => {
@@ -269,8 +296,7 @@ describe("feishu card builders", () => {
     assert.match(json, /Model: gpt-5\.4 \(default\)/);
     assert.match(json, /Reasoning: high/);
     assert.match(json, /Plan Mode: On/);
-    assert.match(json, /Sandbox: workspace-write/);
-    assert.match(json, /Approval: on-request/);
+    assert.match(json, /Task Permissions/);
   });
 
   it("renders a read-only status snapshot card for mobile status checks", () => {

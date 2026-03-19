@@ -20,6 +20,7 @@ import {
   createDraftCard,
   createTaskActivityCard,
   createTaskInspectionSnapshotCard,
+  createTaskPermissionCard,
   createTaskRenameCard,
   createTaskControlCard,
   createTaskStatusSnapshotCard,
@@ -2089,6 +2090,29 @@ export class FeishuBridge {
     await this.sendCardReply(targetMessageId, card);
   }
 
+  private async replyTaskPermissionCard(params: {
+    task: BridgeTask;
+    binding: FeishuThreadBinding;
+    note?: string;
+    replyTargetId?: string;
+  }): Promise<void> {
+    const { task, binding, note, replyTargetId } = params;
+    const currentCard = this.getThreadTaskCard(binding);
+    const revision = (currentCard?.revision ?? 0) + 1;
+    const card = createTaskPermissionCard({
+      task,
+      binding,
+      revision,
+      note,
+    });
+    const targetMessageId =
+      replyTargetId ??
+      binding.rootMessageId ??
+      currentCard?.messageId ??
+      binding.threadKey;
+    await this.sendCardReply(targetMessageId, card);
+  }
+
   private async patchTaskRenameCard(params: {
     task: BridgeTask;
     binding: FeishuThreadBinding;
@@ -2105,6 +2129,30 @@ export class FeishuBridge {
     await this.patchCardMessage(
       messageId,
       createTaskRenameCard({
+        task,
+        binding,
+        revision,
+        note,
+      }),
+    );
+  }
+
+  private async patchTaskPermissionCard(params: {
+    task: BridgeTask;
+    binding: FeishuThreadBinding;
+    note?: string;
+    messageId?: string;
+  }): Promise<void> {
+    const { task, binding, note, messageId } = params;
+    if (!messageId) {
+      return;
+    }
+
+    const currentCard = this.getThreadTaskCard(binding);
+    const revision = (currentCard?.revision ?? 0) + 1;
+    await this.patchCardMessage(
+      messageId,
+      createTaskPermissionCard({
         task,
         binding,
         revision,
@@ -2753,6 +2801,21 @@ export class FeishuBridge {
           },
         });
         note = `Selected sandbox ${sandbox}.`;
+        if (event?.open_message_id && event.open_message_id !== currentCard?.messageId) {
+          const refreshedTask = this.options.service.getTask(task.taskId) ?? task;
+          await this.patchTaskPermissionCard({
+            task: refreshedTask,
+            binding,
+            messageId: event.open_message_id,
+            note,
+          });
+          await this.renderTaskControlCard({
+            task: refreshedTask,
+            binding,
+            note,
+          });
+          return;
+        }
         break;
       }
       case "task.select.approval": {
@@ -2772,6 +2835,21 @@ export class FeishuBridge {
           },
         });
         note = `Selected approval policy ${approvalPolicy}.`;
+        if (event?.open_message_id && event.open_message_id !== currentCard?.messageId) {
+          const refreshedTask = this.options.service.getTask(task.taskId) ?? task;
+          await this.patchTaskPermissionCard({
+            task: refreshedTask,
+            binding,
+            messageId: event.open_message_id,
+            note,
+          });
+          await this.renderTaskControlCard({
+            task: refreshedTask,
+            binding,
+            note,
+          });
+          return;
+        }
         break;
       }
       case "task.toggle.plan-mode":
@@ -2805,6 +2883,14 @@ export class FeishuBridge {
           task,
           binding,
           note: "Submit a new task title here to update both Feishu and the VSCode monitor.",
+          replyTargetId: binding.rootMessageId ?? event?.open_message_id ?? currentCard?.messageId ?? binding.threadKey,
+        });
+        return;
+      case "task.permissions.open":
+        await this.replyTaskPermissionCard({
+          task,
+          binding,
+          note: "Select sandbox and approval here. Changes apply to future turns.",
           replyTargetId: binding.rootMessageId ?? event?.open_message_id ?? currentCard?.messageId ?? binding.threadKey,
         });
         return;

@@ -771,7 +771,7 @@ describe("feishu long connection ingress", () => {
     }
   });
 
-  it("updates sandbox and approval policy from the bound task card", async () => {
+  it("opens a dedicated permissions card and syncs permission updates back into the bound task card", async () => {
     const harness = await createHarness();
 
     try {
@@ -798,8 +798,43 @@ describe("feishu long connection ingress", () => {
       const currentCard = taskCards.get(threadCardKey);
       assert.ok(currentCard?.messageId);
 
-      await harness.onCardAction({
+      const previousPermissionReplyCount = harness.requests.filter(
+        (request) =>
+          request.method === "POST" &&
+          request.url.includes("/open-apis/im/v1/messages/") &&
+          requestContainsCardTitle(request, `Task Permissions: ${task.title}`),
+      ).length;
+
+      const openPermissionResult = await harness.onCardAction({
         open_message_id: currentCard?.messageId,
+        open_id: "ou_permission_card",
+        action: {
+          tag: "button",
+          value: {
+            kind: "task.permissions.open",
+            chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
+            threadKey: task.feishuBinding?.threadKey ?? "omt_permission_task",
+            rootMessageId: task.feishuBinding?.rootMessageId,
+            taskId: task.taskId,
+            revision: 1,
+          },
+        },
+      });
+
+      assert.equal(openPermissionResult, undefined);
+      await waitFor(
+        () =>
+          harness.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task Permissions: ${task.title}`),
+          ).length > previousPermissionReplyCount,
+        "permissions card reply",
+      );
+
+      await harness.onCardAction({
+        open_message_id: "om_permission_card",
         open_id: "ou_select_sandbox",
         action: {
           tag: "select_static",
@@ -825,13 +860,24 @@ describe("feishu long connection ingress", () => {
             (request) =>
               request.method === "PATCH" &&
               request.url.endsWith(`/open-apis/im/v1/messages/${currentCard?.messageId}`) &&
+              requestContainsCardText(request, "sandbox: danger-full-access"),
+          ),
+        "patched main card sandbox summary",
+      );
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "PATCH" &&
+              request.url.endsWith("/open-apis/im/v1/messages/om_permission_card") &&
+              requestContainsCardTitle(request, `Task Permissions: ${task.title}`) &&
               requestContainsCardText(request, "Sandbox: danger-full-access"),
           ),
-        "patched sandbox card",
+        "patched dedicated permission card sandbox selector",
       );
 
       await harness.onCardAction({
-        open_message_id: currentCard?.messageId,
+        open_message_id: "om_permission_card",
         open_id: "ou_select_approval",
         action: {
           tag: "select_static",
@@ -857,9 +903,20 @@ describe("feishu long connection ingress", () => {
             (request) =>
               request.method === "PATCH" &&
               request.url.endsWith(`/open-apis/im/v1/messages/${currentCard?.messageId}`) &&
+              requestContainsCardText(request, "approval: never"),
+          ),
+        "patched main card approval summary",
+      );
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "PATCH" &&
+              request.url.endsWith("/open-apis/im/v1/messages/om_permission_card") &&
+              requestContainsCardTitle(request, `Task Permissions: ${task.title}`) &&
               requestContainsCardText(request, "Approval: never"),
           ),
-        "patched approval card",
+        "patched dedicated permission card approval selector",
       );
     } finally {
       await harness.cleanup();

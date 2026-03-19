@@ -48,10 +48,11 @@
 - 一个工作群作为入口
 - 每个 bridge task 绑定一个 Feishu 线程或回复链
 - 负责移动端对话、审批和控制命令
-- 未绑定线程先进入 draft card；draft 与已绑定任务卡都可设置 `model`、`effort`、`planMode`、`sandbox`、`approvalPolicy`
+- 未绑定线程先进入 draft card；draft 可设置 `model`、`effort`、`planMode`、`sandbox`、`approvalPolicy`
 - Feishu 的文本、图片、文件消息都可以进入同一个 task；图片走原生图像输入，文件作为本地路径附件交给 Codex
-- 已绑定任务卡提供 `Rename Task`、`Archive Task`、`Unbind Thread` 和 `More` 查询入口
+- 已绑定任务卡提供 `Rename Task`、`Task Permissions`、`Archive Task`、`Unbind Thread` 和 `More` 查询入口
 - `Rename Task` 会先下发一张独立的重命名卡；提交后会更新共享 task 标题，并同步回 VSCode monitor 与 Feishu 主任务卡
+- `Task Permissions` 会先下发一张独立的权限卡；调整 `sandbox` 或 `approvalPolicy` 后会同步刷新权限卡和 Feishu 主任务卡
 - 任意一条 Feishu 文本、图片、文件消息都会立即回一张独立的 `Task Activity` 卡，说明这条消息是直接开始 turn、注入当前 turn、还是排队到下一轮
 - 当消息因任务忙碌而排队时，独立 `Task Activity` 卡会提供 `Withdraw This Message` 和 `Run This Message Now` / `Interrupt + Run This Message Now`
 - `More` 菜单里的状态、任务、健康度、账号、额度查询都通过新的只读快照卡回复，而不是覆盖主任务卡
