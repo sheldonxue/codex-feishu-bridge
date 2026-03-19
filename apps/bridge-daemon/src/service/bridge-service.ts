@@ -1114,7 +1114,7 @@ export class BridgeService {
 
   private async resumeImportedTaskBeforeMessage(task: BridgeTask): Promise<void> {
     await this.hydrateImportedTaskExecutionProfile(task);
-    if (!this.canRefreshImportedTaskConversation(task)) {
+    if (task.mode !== "manual-import") {
       return;
     }
 

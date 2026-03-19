@@ -1393,6 +1393,72 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("resumes imported host threads before sending new messages even after live conversation entries exist", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-import-resume-after-live-message-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new FakeStatusRuntime();
+    runtime.requireResumeBeforeStartTurn(true);
+    runtime.setThreads([
+      {
+        id: "thread-needs-resume-after-live",
+        name: "Imported needs resume after live message",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:30:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+
+    const internalTask = (
+      service as unknown as {
+        tasks: Map<
+          string,
+          {
+            conversation: Array<{
+              messageId: string;
+              author: string;
+              surface: string;
+              content: string;
+              createdAt: string;
+            }>;
+          }
+        >;
+      }
+    ).tasks.get("thread-needs-resume-after-live");
+    assert.ok(internalTask);
+    internalTask.conversation.push({
+      messageId: "live-user-message",
+      author: "user",
+      surface: "feishu",
+      content: "Follow-up from Feishu",
+      createdAt: "2026-03-19T00:31:00.000Z",
+    });
+
+    assert.equal(runtime.hasResumedThread("thread-needs-resume-after-live"), false);
+
+    await service.sendMessage("thread-needs-resume-after-live", {
+      content: "Continue after the earlier live reply",
+      source: "feishu",
+      replyToFeishu: true,
+    });
+
+    assert.equal(runtime.hasResumedThread("thread-needs-resume-after-live"), true);
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("tolerates missing rollout files when importing host threads", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
