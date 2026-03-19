@@ -615,11 +615,18 @@ function isMirroredRolloutMessagePair(
     return false;
   }
 
+  const previousTimestamp = Date.parse(previous.createdAt);
+  const nextTimestamp = Date.parse(next.createdAt);
+  const timestampsMatch =
+    Number.isFinite(previousTimestamp) &&
+    Number.isFinite(nextTimestamp) &&
+    Math.abs(previousTimestamp - nextTimestamp) <= 5;
+
   return (
     previous.author === next.author &&
     previous.surface === next.surface &&
     previous.content === next.content &&
-    previous.createdAt === next.createdAt
+    (previous.createdAt === next.createdAt || timestampsMatch)
   );
 }
 

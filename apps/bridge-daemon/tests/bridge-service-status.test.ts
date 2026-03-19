@@ -678,7 +678,7 @@ describe("bridge service runtime status mapping", () => {
           },
         }),
         JSON.stringify({
-          timestamp: "2026-03-19T00:00:01.000Z",
+          timestamp: "2026-03-19T00:00:01.001Z",
           type: "event_msg",
           payload: {
             type: "user_message",
@@ -696,7 +696,7 @@ describe("bridge service runtime status mapping", () => {
           },
         }),
         JSON.stringify({
-          timestamp: "2026-03-19T00:00:02.000Z",
+          timestamp: "2026-03-19T00:00:02.001Z",
           type: "response_item",
           payload: {
             type: "message",
