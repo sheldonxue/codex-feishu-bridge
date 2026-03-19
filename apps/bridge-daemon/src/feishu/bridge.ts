@@ -958,6 +958,10 @@ export class FeishuBridge {
               note: "This queued Feishu message was withdrawn before it started.",
               receiptState: "withdrawn",
             });
+            await this.renderTaskControlCard({
+              task,
+              binding: task.feishuBinding,
+            });
             return;
           }
           await syncActivityCards();
@@ -2805,22 +2809,17 @@ export class FeishuBridge {
         }
         try {
           await this.options.service.withdrawQueuedMessage(task.taskId, receiptId);
-          note = "Withdrew this queued Feishu message.";
         } catch (error) {
           note = error instanceof Error ? error.message : String(error);
+          const refreshedTask = this.options.service.getTask(task.taskId) ?? task;
+          const targetedActivityCard = this.getTaskActivityCard(task.taskId, receiptId);
+          if (targetedActivityCard) {
+            await this.patchTaskActivityCard(targetedActivityCard, refreshedTask, {
+              note,
+              receiptState: "failed",
+            });
+          }
         }
-        const refreshedTask = this.options.service.getTask(task.taskId) ?? task;
-        const targetedActivityCard = this.getTaskActivityCard(task.taskId, receiptId);
-        if (targetedActivityCard) {
-          await this.patchTaskActivityCard(targetedActivityCard, refreshedTask, {
-            note,
-            receiptState: "withdrawn",
-          });
-        }
-        await this.renderTaskControlCard({
-          task: refreshedTask,
-          binding,
-        });
         return;
       }
       case "task.force-turn": {

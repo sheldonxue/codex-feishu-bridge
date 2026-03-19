@@ -1035,6 +1035,14 @@ describe("feishu long connection ingress", () => {
           ),
         "withdrawn activity card patch",
       );
+      assert.equal(
+        harness.requests.filter(
+          (request) =>
+            request.method === "PATCH" &&
+            request.url.endsWith(`/open-apis/im/v1/messages/${queuedActivityCard?.messageId}`),
+        ).length,
+        1,
+      );
     } finally {
       await harness.cleanup();
     }
