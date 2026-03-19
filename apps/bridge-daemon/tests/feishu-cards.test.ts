@@ -152,9 +152,13 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /model: runtime-default/);
     assert.match(taskJson, /reasoning: model-default/);
     assert.match(taskJson, /plan mode: off/);
+    assert.match(taskJson, /sandbox: workspace-write/);
+    assert.match(taskJson, /approval: on-request/);
     assert.match(taskJson, /Model: runtime-default/);
     assert.match(taskJson, /Reasoning: model-default/);
     assert.match(taskJson, /Plan Mode: Off/);
+    assert.match(taskJson, /Sandbox: workspace-write/);
+    assert.match(taskJson, /Approval: on-request/);
     assert.match(taskJson, /Rename Task/);
     assert.match(taskJson, /View Status/);
     assert.match(taskJson, /Stop Turn/);
@@ -260,9 +264,13 @@ describe("feishu card builders", () => {
     assert.match(json, /model: gpt-5\.4 \(default\)/);
     assert.match(json, /reasoning: high/);
     assert.match(json, /plan mode: on/);
+    assert.match(json, /sandbox: workspace-write/);
+    assert.match(json, /approval: on-request/);
     assert.match(json, /Model: gpt-5\.4 \(default\)/);
     assert.match(json, /Reasoning: high/);
     assert.match(json, /Plan Mode: On/);
+    assert.match(json, /Sandbox: workspace-write/);
+    assert.match(json, /Approval: on-request/);
   });
 
   it("renders a read-only status snapshot card for mobile status checks", () => {

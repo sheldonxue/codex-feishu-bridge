@@ -117,6 +117,7 @@ export class StdioCodexRuntime implements CodexRuntime {
     model?: string;
     effort?: CodexReasoningEffort;
     approvalPolicy?: CodexApprovalPolicy;
+    sandbox?: CodexSandboxMode;
     planMode?: boolean;
   }): Promise<CodexTurnDescriptor> {
     const response = await this.client.request<{ turn: RawCodexTurnDescriptor }>("turn/start", {
@@ -125,6 +126,7 @@ export class StdioCodexRuntime implements CodexRuntime {
       ...(params.model ? { model: params.model } : {}),
       ...(params.effort ? { effort: params.effort } : {}),
       ...(params.approvalPolicy ? { approvalPolicy: params.approvalPolicy } : {}),
+      ...(params.sandbox ? { sandbox: params.sandbox } : {}),
       ...(params.planMode ? { plan_mode: true } : {}),
     });
     return normalizeTurnDescriptor(response.turn, params.threadId);

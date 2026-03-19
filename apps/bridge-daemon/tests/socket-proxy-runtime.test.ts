@@ -68,6 +68,7 @@ describe("socket-proxy runtime compatibility", () => {
         model: "gpt-5.4",
         effort: "high",
         approvalPolicy: "never",
+        sandbox: "danger-full-access",
       });
       assert.equal(startedTurn.threadId, startedThread.id);
 
@@ -77,6 +78,17 @@ describe("socket-proxy runtime compatibility", () => {
         input: [{ type: "text", text: "Keep going from the socket proxy" }],
       });
       assert.equal(steered.turnId, startedTurn.id);
+
+      const requestProbe = await (runtime as unknown as {
+        client: {
+          request<T>(method: string, params?: unknown): Promise<T>;
+        };
+      }).client.request<{ requests: Array<{ method: string; params: Record<string, unknown> | null }> }>(
+        "bridge/test/requests",
+        {},
+      );
+      const turnStartRequest = requestProbe.requests.find((entry) => entry.method === "turn/start");
+      assert.equal(turnStartRequest?.params?.sandbox, "danger-full-access");
     } finally {
       await runtime.dispose();
       await proxy.close();

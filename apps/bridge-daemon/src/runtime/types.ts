@@ -169,6 +169,7 @@ export interface CodexRuntime {
     model?: string;
     effort?: CodexReasoningEffort;
     approvalPolicy?: CodexApprovalPolicy;
+    sandbox?: CodexSandboxMode;
     planMode?: boolean;
   }): Promise<CodexTurnDescriptor>;
   steerTurn(params: {

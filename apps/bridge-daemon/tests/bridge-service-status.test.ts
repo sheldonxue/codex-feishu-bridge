@@ -7,7 +7,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 
 import { createConsoleLogger, prepareBridgeDirectories } from "@codex-feishu-bridge/shared";
-import type { ApprovalPolicy } from "@codex-feishu-bridge/protocol";
+import type { ApprovalPolicy, SandboxMode } from "@codex-feishu-bridge/protocol";
 
 import type {
   CodexAccountSnapshot,
@@ -84,6 +84,7 @@ class FakeStatusRuntime implements CodexRuntime {
   private requiresResumeBeforeStartTurn = false;
   private readonly resumedThreadIds = new Set<string>();
   private lastStartTurnApprovalPolicy: ApprovalPolicy | undefined;
+  private lastStartTurnSandbox: SandboxMode | undefined;
   private startTurnCallCount = 0;
 
   async start(): Promise<void> {}
@@ -161,12 +162,14 @@ class FakeStatusRuntime implements CodexRuntime {
   async startTurn(params: {
     threadId: string;
     approvalPolicy?: ApprovalPolicy;
+    sandbox?: SandboxMode;
   }): Promise<CodexTurnDescriptor> {
     if (this.requiresResumeBeforeStartTurn && !this.resumedThreadIds.has(params.threadId)) {
       throw new Error(`thread not found: ${params.threadId}`);
     }
     this.startTurnCallCount += 1;
     this.lastStartTurnApprovalPolicy = params.approvalPolicy;
+    this.lastStartTurnSandbox = params.sandbox;
     return {
       id: "turn-1",
       threadId: params.threadId,
@@ -218,6 +221,10 @@ class FakeStatusRuntime implements CodexRuntime {
 
   getStartTurnCallCount(): number {
     return this.startTurnCallCount;
+  }
+
+  getLastStartTurnSandbox(): SandboxMode | undefined {
+    return this.lastStartTurnSandbox;
   }
 }
 
@@ -353,6 +360,7 @@ describe("bridge service runtime status mapping", () => {
       replyToFeishu: true,
     });
     assert.equal(runtime.getLastStartTurnApprovalPolicy(), "never");
+    assert.equal(runtime.getLastStartTurnSandbox(), "danger-full-access");
 
     await service.dispose();
     await runtime.dispose();

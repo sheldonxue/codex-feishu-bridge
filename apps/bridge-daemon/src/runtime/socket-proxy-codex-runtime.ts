@@ -116,6 +116,7 @@ export class SocketProxyCodexRuntime implements CodexRuntime {
     model?: string;
     effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
     approvalPolicy?: CodexApprovalPolicy;
+    sandbox?: CodexSandboxMode;
     planMode?: boolean;
   }): Promise<CodexTurnDescriptor> {
     const response = await this.client.request<{ turn: RawCodexTurnDescriptor }>("turn/start", {
@@ -124,6 +125,7 @@ export class SocketProxyCodexRuntime implements CodexRuntime {
       ...(params.model ? { model: params.model } : {}),
       ...(params.effort ? { effort: params.effort } : {}),
       ...(params.approvalPolicy ? { approvalPolicy: params.approvalPolicy } : {}),
+      ...(params.sandbox ? { sandbox: params.sandbox } : {}),
       ...(params.planMode ? { plan_mode: true } : {}),
     });
     return normalizeTurnDescriptor(response.turn, params.threadId);

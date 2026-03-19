@@ -771,6 +771,101 @@ describe("feishu long connection ingress", () => {
     }
   });
 
+  it("updates sandbox and approval policy from the bound task card", async () => {
+    const harness = await createHarness();
+
+    try {
+      const task = await harness.service.createTask({
+        title: "Permission card task",
+      });
+
+      await harness.feishu.bindTaskToNewTopic(task.taskId);
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task: ${task.title}`),
+          ),
+        "initial bound task card",
+      );
+
+      const taskCards = (
+        harness.feishu as unknown as { threadTaskCards: Map<string, { messageId: string; revision: number; note?: string }> }
+      ).threadTaskCards;
+      const threadCardKey = `${task.feishuBinding?.chatId}:${task.feishuBinding?.threadKey}`;
+      const currentCard = taskCards.get(threadCardKey);
+      assert.ok(currentCard?.messageId);
+
+      await harness.onCardAction({
+        open_message_id: currentCard?.messageId,
+        open_id: "ou_select_sandbox",
+        action: {
+          tag: "select_static",
+          option: "danger-full-access",
+          value: {
+            kind: "task.select.sandbox",
+            chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
+            threadKey: task.feishuBinding?.threadKey ?? "omt_permission_task",
+            rootMessageId: task.feishuBinding?.rootMessageId,
+            taskId: task.taskId,
+            revision: 1,
+          },
+        },
+      });
+
+      await waitFor(
+        () => harness.service.getTask(task.taskId)?.executionProfile.sandbox === "danger-full-access",
+        "updated sandbox",
+      );
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "PATCH" &&
+              request.url.endsWith(`/open-apis/im/v1/messages/${currentCard?.messageId}`) &&
+              requestContainsCardText(request, "Sandbox: danger-full-access"),
+          ),
+        "patched sandbox card",
+      );
+
+      await harness.onCardAction({
+        open_message_id: currentCard?.messageId,
+        open_id: "ou_select_approval",
+        action: {
+          tag: "select_static",
+          option: "never",
+          value: {
+            kind: "task.select.approval",
+            chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
+            threadKey: task.feishuBinding?.threadKey ?? "omt_permission_task",
+            rootMessageId: task.feishuBinding?.rootMessageId,
+            taskId: task.taskId,
+            revision: 2,
+          },
+        },
+      });
+
+      await waitFor(
+        () => harness.service.getTask(task.taskId)?.executionProfile.approvalPolicy === "never",
+        "updated approval policy",
+      );
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "PATCH" &&
+              request.url.endsWith(`/open-apis/im/v1/messages/${currentCard?.messageId}`) &&
+              requestContainsCardText(request, "Approval: never"),
+          ),
+        "patched approval card",
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("replies with new inspection snapshot cards for every More-menu query instead of patching the bound task card", async () => {
     const harness = await createHarness();
 

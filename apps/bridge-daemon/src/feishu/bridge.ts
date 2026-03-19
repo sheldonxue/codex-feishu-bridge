@@ -2736,6 +2736,44 @@ export class FeishuBridge {
         note = effort ? `Selected effort ${effort}.` : "Reverted to model-default effort.";
         break;
       }
+      case "task.select.sandbox": {
+        const sandbox = action?.option as SandboxMode | undefined;
+        if (!sandbox || !SANDBOX_MODE_VALUES.includes(sandbox)) {
+          note = "Unsupported sandbox mode.";
+          break;
+        }
+
+        await this.options.service.updateTaskSettings(task.taskId, {
+          executionProfile: {
+            ...(task.executionProfile.model ? { model: task.executionProfile.model } : {}),
+            ...(task.executionProfile.effort ? { effort: task.executionProfile.effort } : {}),
+            ...(task.executionProfile.planMode ? { planMode: true } : {}),
+            sandbox,
+            ...(task.executionProfile.approvalPolicy ? { approvalPolicy: task.executionProfile.approvalPolicy } : {}),
+          },
+        });
+        note = `Selected sandbox ${sandbox}.`;
+        break;
+      }
+      case "task.select.approval": {
+        const approvalPolicy = action?.option as ApprovalPolicy | undefined;
+        if (!approvalPolicy || !APPROVAL_POLICY_VALUES.includes(approvalPolicy)) {
+          note = "Unsupported approval policy.";
+          break;
+        }
+
+        await this.options.service.updateTaskSettings(task.taskId, {
+          executionProfile: {
+            ...(task.executionProfile.model ? { model: task.executionProfile.model } : {}),
+            ...(task.executionProfile.effort ? { effort: task.executionProfile.effort } : {}),
+            ...(task.executionProfile.planMode ? { planMode: true } : {}),
+            ...(task.executionProfile.sandbox ? { sandbox: task.executionProfile.sandbox } : {}),
+            approvalPolicy,
+          },
+        });
+        note = `Selected approval policy ${approvalPolicy}.`;
+        break;
+      }
       case "task.toggle.plan-mode":
         {
         const nextPlanMode = !task.executionProfile.planMode;

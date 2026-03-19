@@ -67,6 +67,7 @@ describe("stdio runtime compatibility", () => {
         model: "gpt-5.4",
         effort: "high",
         approvalPolicy: "never",
+        sandbox: "danger-full-access",
       });
       assert.equal(startedTurn.threadId, startedThread.id);
 
@@ -94,6 +95,7 @@ describe("stdio runtime compatibility", () => {
       assert.equal(turnStartRequest?.params?.model, "gpt-5.4");
       assert.equal(turnStartRequest?.params?.effort, "high");
       assert.equal(turnStartRequest?.params?.approvalPolicy, "never");
+      assert.equal(turnStartRequest?.params?.sandbox, "danger-full-access");
       assert.equal(steerRequest?.params?.expectedTurnId, startedTurn.id);
       assert.equal(steerRequest?.params?.turnId, undefined);
 

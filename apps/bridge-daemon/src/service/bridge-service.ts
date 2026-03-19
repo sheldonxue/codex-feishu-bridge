@@ -1185,6 +1185,7 @@ export class BridgeService {
         model: task.executionProfile.model,
         effort: task.executionProfile.effort,
         approvalPolicy: task.executionProfile.approvalPolicy,
+        sandbox: task.executionProfile.sandbox,
         planMode: task.executionProfile.planMode,
       });
       this.trackPendingTurnStart(turn.id);

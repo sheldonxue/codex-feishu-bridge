@@ -110,6 +110,8 @@ export type FeishuCardActionKind =
   | "draft.cancel"
   | "task.select.model"
   | "task.select.effort"
+  | "task.select.sandbox"
+  | "task.select.approval"
   | "task.toggle.plan-mode"
   | "task.toggle.feishu-running-mode"
   | "task.force-turn"
@@ -622,6 +624,8 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
   const { task, binding, revision } = data;
   const selectedModel = task.executionProfile.model;
   const selectedEffort = task.executionProfile.effort;
+  const selectedSandbox = task.executionProfile.sandbox ?? DEFAULT_NEW_SANDBOX;
+  const selectedApprovalPolicy = task.executionProfile.approvalPolicy ?? DEFAULT_NEW_APPROVAL_POLICY;
   const modelDescriptor = data.modelOptions.find((entry) => entry.id === selectedModel);
   const modelOptions = [
     { label: "runtime-default", value: "" },
@@ -639,6 +643,23 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
   ];
   const currentModelLabel = resolveOptionLabel(modelOptions, selectedModel ?? "", "runtime-default");
   const currentEffortLabel = resolveOptionLabel(effortOptions, selectedEffort ?? "", "model-default");
+  const sandboxOptions = [
+    { label: "read-only", value: "read-only" },
+    { label: "workspace-write", value: "workspace-write" },
+    { label: "danger-full-access", value: "danger-full-access" },
+  ];
+  const approvalPolicyOptions = [
+    { label: "untrusted", value: "untrusted" },
+    { label: "on-failure", value: "on-failure" },
+    { label: "on-request", value: "on-request" },
+    { label: "never", value: "never" },
+  ];
+  const currentSandboxLabel = resolveOptionLabel(sandboxOptions, selectedSandbox, DEFAULT_NEW_SANDBOX);
+  const currentApprovalPolicyLabel = resolveOptionLabel(
+    approvalPolicyOptions,
+    selectedApprovalPolicy,
+    DEFAULT_NEW_APPROVAL_POLICY,
+  );
 
   return {
     config: {
@@ -678,6 +699,8 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           `model: ${currentModelLabel}`,
           `reasoning: ${currentEffortLabel}`,
           `plan mode: ${task.executionProfile.planMode ? "on" : "off"}`,
+          `sandbox: ${currentSandboxLabel}`,
+          `approval: ${currentApprovalPolicyLabel}`,
         ].join("\n"),
       ),
       ...(note ? [divider(), markdown(`**Update**\n${note}`)] : []),
@@ -707,6 +730,26 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           text: `Plan Mode: ${task.executionProfile.planMode ? "On" : "Off"}`,
           type: task.executionProfile.planMode ? "primary" : "default",
           value: baseActionValue("task.toggle.plan-mode", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
+      ]),
+      action([
+        selectStatic({
+          placeholder: `Sandbox: ${currentSandboxLabel}`,
+          initialOption: selectedSandbox,
+          options: sandboxOptions,
+          value: baseActionValue("task.select.sandbox", binding, {
+            taskId: task.taskId,
+            revision,
+          }),
+        }),
+        selectStatic({
+          placeholder: `Approval: ${currentApprovalPolicyLabel}`,
+          initialOption: selectedApprovalPolicy,
+          options: approvalPolicyOptions,
+          value: baseActionValue("task.select.approval", binding, {
             taskId: task.taskId,
             revision,
           }),
