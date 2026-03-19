@@ -37,6 +37,7 @@
 - 监视器页内置任务列表、Conversation、Desktop Composer，以及本地任务多选批量清理
 - Desktop Composer 可直接设置后续 turn 的 `model`、`effort`、`planMode`，并附加本地照片或文件
 - 监视器页支持对未绑定任务一键 `Bind to New Feishu Topic`，在默认飞书群里创建新话题并立刻绑定当前任务
+- 监视器页支持直接重命名任务；这会更新 bridge task 标题，并同步到任何已绑定的 Feishu 主任务卡
 - 任务卡片同时显示任务启动来源标签和当前 Feishu 绑定标签，例如 `VSCODE + FEISHU`、`CLI + FEISHU`
 - 监视器页可切换“Feishu 在运行中发来的消息是直接 steer 当前 turn，还是 queue 到下一轮”
 - 暴露 `openMonitor`、`newTask`、`resumeTask`、`importThreads`、`sendMessage`、`interruptTask`、`approve*`、`retryTurn`、`openDiff`
@@ -49,7 +50,8 @@
 - 负责移动端对话、审批和控制命令
 - 未绑定线程先进入 draft card；draft 与已绑定任务卡都可设置 `model`、`effort`、`planMode`
 - Feishu 的文本、图片、文件消息都可以进入同一个 task；图片走原生图像输入，文件作为本地路径附件交给 Codex
-- 已绑定任务卡提供 `View Status`、`Stop Turn`、`Retry Last Turn`、`Archive Task`、`Unbind Thread`
+- 已绑定任务卡提供 `View Status`、`Stop Turn`、`Retry Last Turn`、`Rename Task`、`Archive Task`、`Unbind Thread`
+- `Rename Task` 会先下发一张独立的重命名卡；提交后会更新共享 task 标题，并同步回 VSCode monitor 与 Feishu 主任务卡
 - 已绑定任务卡可切换“Feishu 在运行中发来的消息是 steer 当前 turn，还是 queue 到下一轮”
 - `Archive Task` 会终结当前 Feishu 话题的 bridge 绑定能力；后续同话题里的文本、图片、文件不会再继续同步到主机任务
 
@@ -70,11 +72,12 @@
 - `taskId = threadId` for bridge-managed tasks
 - `manual-import` tasks retain the imported `threadId` and are normalized into the same task model
 - One Feishu thread binds to one bridge task
+- 手动重命名后的 `title` 会被 bridge 持久化，并优先于后续 runtime thread name 同步结果，直到再次显式重命名
 
 ## 核心数据结构
 
 - `BridgeTask`
-  - `taskId`, `threadId`, `mode`, `taskOrigin`, `title`, `workspaceRoot`, `status`, `activeTurnId`, `feishuBinding`, `feishuRunningMessageMode`, `queuedMessageCount`
+  - `taskId`, `threadId`, `mode`, `taskOrigin`, `title`, `titleLocked`, `workspaceRoot`, `status`, `activeTurnId`, `feishuBinding`, `feishuRunningMessageMode`, `queuedMessageCount`
 - `BridgeEvent`
   - `seq`, `taskId`, `kind`, `timestamp`, `payload`
 - `QueuedApproval`
@@ -97,6 +100,7 @@
 - `/tasks/:id`
 - `/tasks/:id/resume`
 - `/tasks/:id/messages`
+- `/tasks/:id/title`
 - `/tasks/:id/interrupt`
 - `/tasks/:id/uploads`
 - `/tasks/:id/approvals/*`
