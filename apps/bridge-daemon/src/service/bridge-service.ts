@@ -607,6 +607,22 @@ function prefersExistingConversationSurface(
   return existing.author === next.author && existing.surface !== "runtime" && next.surface === "runtime";
 }
 
+function isMirroredRolloutMessagePair(
+  previous: RolloutConversationSeed | undefined,
+  next: RolloutConversationSeed,
+): boolean {
+  if (!previous) {
+    return false;
+  }
+
+  return (
+    previous.author === next.author &&
+    previous.surface === next.surface &&
+    previous.content === next.content &&
+    previous.createdAt === next.createdAt
+  );
+}
+
 function parseRolloutConversationSeed(line: string, defaultSurface = "runtime" as MessageSurface): {
   message: RolloutConversationSeed | null;
   sessionSurface?: MessageSurface;
@@ -2244,6 +2260,9 @@ export class BridgeService {
         }
         const message = parsed.message;
         if (!message) {
+          continue;
+        }
+        if (isMirroredRolloutMessagePair(messages.at(-1), message)) {
           continue;
         }
         messages.push(message);

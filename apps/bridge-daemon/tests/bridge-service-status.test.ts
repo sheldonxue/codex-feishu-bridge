@@ -647,6 +647,107 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("deduplicates mirrored event and response message records in imported rollouts", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-import-dedupe-test");
+    await prepareBridgeDirectories(config);
+
+    const rolloutRelativePath = "sessions/2026/03/19/rollout-import-dedupe-history.jsonl";
+    const rolloutDiskPath = path.join(config.codexHome, rolloutRelativePath);
+    await mkdir(path.dirname(rolloutDiskPath), { recursive: true });
+    await writeFile(
+      rolloutDiskPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            id: "thread-dedupe-history",
+            source: "vscode",
+            originator: "codex_vscode",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:01.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Imported from monitor" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:01.000Z",
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Imported from monitor",
+            local_images: [],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:02.000Z",
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: "Imported answer",
+            phase: "final",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-19T00:00:02.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Imported answer" }],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    writeThreadStateRow(config, {
+      threadId: "thread-dedupe-history",
+      rolloutPath: `/codex-home/${rolloutRelativePath}`,
+    });
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-dedupe-history",
+        name: "Imported with mirrored records",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T00:10:00.000Z",
+        status: {
+          type: "notLoaded",
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const imported = await service.importRecentRuntimeThreads(1);
+    assert.equal(imported.length, 1);
+    assert.deepEqual(
+      imported[0].conversation.map((entry) => ({
+        author: entry.author,
+        surface: entry.surface,
+        content: entry.content,
+      })),
+      [
+        { author: "user", surface: "vscode", content: "Imported from monitor" },
+        { author: "agent", surface: "runtime", content: "Imported answer" },
+      ],
+    );
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("imports the full rollout conversation instead of truncating to the latest 20 messages", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);
