@@ -268,7 +268,6 @@ describe("feishu long connection ingress", () => {
         "first final agent reply",
       );
 
-      const previousConversationLength = harness.service.getTask(createdTask!.taskId)?.conversation.length ?? 0;
       await harness.onMessage(
         {
           message_id: "om_follow_up",
@@ -286,12 +285,14 @@ describe("feishu long connection ingress", () => {
       );
 
       await waitFor(
-        () => (harness.service.getTask(createdTask!.taskId)?.conversation.length ?? 0) > previousConversationLength,
-        "follow-up routing",
-      );
-      await waitFor(
-        () => harness.requests.some((request) => parseMessageText(request).includes("Mock response for: second prompt")),
-        "follow-up final agent reply",
+        () =>
+          harness.requests.some((request) => parseMessageText(request).includes("Mock response for: second prompt")) ||
+          harness.requests.some(
+            (request) =>
+              requestContainsCardTitle(request, `Task Activity: ${createdTask!.title}`) &&
+              requestContainsCardText(request, "Queued the latest Feishu message"),
+          ),
+        "follow-up response or queued-activity card",
       );
     } finally {
       await harness.cleanup();
@@ -674,6 +675,85 @@ describe("feishu long connection ingress", () => {
     }
   });
 
+  it("patches the interacted task card when toggling plan mode from an older bound card", async () => {
+    const harness = await createHarness();
+
+    try {
+      const task = await harness.service.createTask({
+        title: "Running mode card task",
+      });
+
+      await harness.feishu.bindTaskToNewTopic(task.taskId);
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task: ${task.title}`),
+          ),
+        "initial bound task card",
+      );
+
+      const taskCards = (
+        harness.feishu as unknown as { threadTaskCards: Map<string, { messageId: string; revision: number; note?: string }> }
+      ).threadTaskCards;
+      const threadCardKey = `${task.feishuBinding?.chatId}:${task.feishuBinding?.threadKey}`;
+      const originalCard = taskCards.get(threadCardKey);
+      assert.ok(originalCard?.messageId);
+
+      taskCards.set(threadCardKey, {
+        messageId: "om_reply_newer_control_card",
+        revision: (originalCard?.revision ?? 1) + 1,
+        note: "A newer control card exists.",
+      });
+
+      const toggleResult = await harness.onCardAction({
+        open_message_id: originalCard?.messageId,
+        open_id: "ou_toggle_plan_mode",
+        action: {
+          tag: "button",
+          value: {
+            kind: "task.toggle.plan-mode",
+            chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
+            threadKey: task.feishuBinding?.threadKey ?? "omt_running_mode_task",
+            rootMessageId: task.feishuBinding?.rootMessageId,
+            taskId: task.taskId,
+            revision: 1,
+          },
+        },
+      });
+
+      assert.ok(toggleResult);
+      await waitFor(
+        () => harness.service.getTask(task.taskId)?.executionProfile.planMode === true,
+        "enabled plan mode",
+      );
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "PATCH" &&
+              request.url.endsWith(`/open-apis/im/v1/messages/${originalCard?.messageId}`) &&
+              requestContainsCardText(request, "Plan Mode: On"),
+          ),
+        "patched interacted older task card",
+      );
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "PATCH" &&
+              request.url.endsWith("/open-apis/im/v1/messages/om_reply_newer_control_card") &&
+              requestContainsCardText(request, "Plan Mode: On"),
+          ),
+        "patched persisted current task card",
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("replies with new inspection snapshot cards for every More-menu query instead of patching the bound task card", async () => {
     const harness = await createHarness();
 
@@ -756,6 +836,89 @@ describe("feishu long connection ingress", () => {
       }
 
       assert.equal(taskCards.get(`${task.feishuBinding?.chatId}:${task.feishuBinding?.threadKey}`)?.messageId, currentCard?.messageId);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("replies with a task-activity card when a Feishu message is queued behind an approval-blocked turn", async () => {
+    const harness = await createHarness();
+
+    try {
+      const task = await harness.service.createTask({
+        title: "Queued activity task",
+      });
+
+      await harness.feishu.bindTaskToNewTopic(task.taskId);
+      await waitFor(
+        () =>
+          harness.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task: ${task.title}`),
+          ),
+        "initial bound task card",
+      );
+
+      await harness.service.sendMessage(task.taskId, {
+        content: "please run a shell command that needs approval",
+        source: "feishu",
+        replyToFeishu: true,
+      });
+      await waitFor(
+        () => harness.service.getTask(task.taskId)?.status === "awaiting-approval",
+        "awaiting approval status",
+      );
+
+      const previousActivityReplyCount = harness.requests.filter(
+        (request) =>
+          request.method === "POST" &&
+          request.url.includes("/open-apis/im/v1/messages/") &&
+          requestContainsCardTitle(request, `Task Activity: ${task.title}`),
+      ).length;
+
+      await harness.onMessage(
+        {
+          message_id: "om_busy_follow_up",
+          thread_id: task.feishuBinding?.threadKey ?? "omt_busy_follow_up",
+          root_id: task.feishuBinding?.rootMessageId ?? "om_root_busy_follow_up",
+          chat_id: task.feishuBinding?.chatId ?? "oc_chat_id",
+          message_type: "text",
+          content: JSON.stringify({ text: "follow up while approval is pending" }),
+        },
+        {
+          sender_id: {
+            open_id: "ou_busy_follow_up",
+          },
+        },
+      );
+
+      await waitFor(
+        () => (harness.service.getTask(task.taskId)?.queuedMessageCount ?? 0) === 1,
+        "queued feishu follow-up",
+      );
+      await waitFor(
+        () =>
+          harness.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.url.includes("/open-apis/im/v1/messages/") &&
+              requestContainsCardTitle(request, `Task Activity: ${task.title}`),
+          ).length > previousActivityReplyCount,
+        "activity card reply",
+      );
+      assert.equal(
+        harness.requests.some(
+          (request) =>
+            request.method === "POST" &&
+            request.url.includes("/open-apis/im/v1/messages/") &&
+            requestContainsCardTitle(request, `Task Activity: ${task.title}`) &&
+            requestContainsCardText(request, "state: queued") &&
+            requestContainsCardText(request, "Queued the latest Feishu message for the next turn."),
+        ),
+        true,
+      );
     } finally {
       await harness.cleanup();
     }

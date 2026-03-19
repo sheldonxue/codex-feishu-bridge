@@ -337,4 +337,56 @@ describe("bridge service turn control", () => {
       await runtime.dispose();
     }
   });
+
+  it("can interrupt the active turn and force the next queued Feishu message to run now", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-turn-control-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new DelayedTurnStartRuntime();
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    try {
+      const created = await service.createTask({
+        title: "Force queue task",
+        prompt: "Start the first turn.",
+      });
+      assert.equal(created.activeTurnId, "turn-race");
+
+      await service.updateTaskSettings(created.taskId, {
+        feishuRunningMessageMode: "queue",
+      });
+
+      const queued = await service.sendMessage(created.taskId, {
+        content: "Run this next.",
+        source: "feishu",
+        replyToFeishu: true,
+      });
+      assert.equal(queued.queuedMessageCount, 1);
+
+      const forced = await service.forceStartQueuedMessage(created.taskId);
+      assert.equal(runtime.interruptCalls.length, 1);
+      await waitFor(() => (service.getTask(created.taskId)?.queuedMessageCount ?? -1) === 0, "forced queue drain");
+      await waitFor(() => (service.getTask(created.taskId)?.activeTurnId ?? "") === "turn-race-2", "forced second turn");
+
+      assert.equal(forced.feishuRunningMessageMode, "queue");
+      assert.equal(runtime.startTurnCalls.length, 2);
+      assert.deepEqual(runtime.startTurnCalls[1], {
+        threadId: created.threadId,
+        input: [
+          {
+            type: "text",
+            text: "Run this next.",
+          },
+        ],
+      });
+    } finally {
+      await service.dispose();
+      await runtime.dispose();
+    }
+  });
 });

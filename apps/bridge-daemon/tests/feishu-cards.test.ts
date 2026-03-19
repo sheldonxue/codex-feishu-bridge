@@ -6,6 +6,7 @@ import { createBridgeTask, type FeishuThreadBinding } from "@codex-feishu-bridge
 import {
   createArchivedThreadCard,
   createDraftCard,
+  createTaskActivityCard,
   createTaskControlCard,
   createTaskInspectionSnapshotCard,
   createTaskRenameCard,
@@ -154,7 +155,6 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Model: runtime-default/);
     assert.match(taskJson, /Reasoning: model-default/);
     assert.match(taskJson, /Plan Mode: Off/);
-    assert.match(taskJson, /While Running: Queue Next Turn/);
     assert.match(taskJson, /Run Controls/);
     assert.match(taskJson, /Thread Controls/);
     assert.match(taskJson, /Rename Task/);
@@ -167,7 +167,7 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Cancel Approval/);
     assert.match(taskJson, /Bridge Health/);
     assert.match(taskJson, /Rate Limits/);
-    assert.match(taskJson, /feishu while running: queue next turn/);
+    assert.match(taskJson, /busy Feishu replies: queue next turn/);
     assert.match(taskJson, /queued next-turn messages: 2/);
   });
 
@@ -299,6 +299,34 @@ describe("feishu card builders", () => {
     assert.doesNotMatch(json, /Latest Update/);
     assert.doesNotMatch(json, /View Status/);
     assert.doesNotMatch(json, /Stop Turn/);
+  });
+
+  it("renders a task activity card with queue status and a force-turn action", () => {
+    const task = createBridgeTask({
+      threadId: "thr-activity-task",
+      title: "Activity task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+    });
+    task.status = "running";
+    task.activeTurnId = "turn-activity";
+    task.queuedMessageCount = 2;
+
+    const activityCard = createTaskActivityCard({
+      task,
+      binding: BINDING,
+      revision: 5,
+      note: "Queued the latest Feishu message for the next turn.",
+      runtimeConnected: true,
+      runtimeInitialized: true,
+    });
+
+    const json = JSON.stringify(activityCard);
+    assert.match(json, /Task Activity: Activity task/);
+    assert.match(json, /Current Agent Status/);
+    assert.match(json, /state: queued/);
+    assert.match(json, /Queued the latest Feishu message for the next turn\./);
+    assert.match(json, /Interrupt \+ Run Next Now/);
   });
 
   it("renders a read-only inspection snapshot card for More-menu queries", () => {

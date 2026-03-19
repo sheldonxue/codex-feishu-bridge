@@ -59,6 +59,15 @@ export interface FeishuTaskControlCardData {
   modelOptions: FeishuModelOption[];
 }
 
+export interface FeishuTaskActivityCardData {
+  task: BridgeTask;
+  note?: string;
+  binding: FeishuThreadBinding;
+  revision: number;
+  runtimeConnected: boolean;
+  runtimeInitialized: boolean;
+}
+
 export interface FeishuTaskStatusSnapshotCardData {
   task: BridgeTask;
   note?: string;
@@ -99,6 +108,7 @@ export type FeishuCardActionKind =
   | "task.select.effort"
   | "task.toggle.plan-mode"
   | "task.toggle.feishu-running-mode"
+  | "task.force-turn"
   | "task.rename.open"
   | "task.rename.submit"
   | "task.status"
@@ -283,6 +293,85 @@ function resolveOptionLabel(
 
 function formatFeishuRunningMessageMode(mode: FeishuRunningMessageMode): string {
   return mode === "queue" ? "queue next turn" : "steer current turn";
+}
+
+function formatTaskActivityState(
+  task: BridgeTask,
+  runtimeConnected: boolean,
+  runtimeInitialized: boolean,
+): {
+  label: string;
+  detail: string;
+  template: NonNullable<FeishuInteractiveCard["header"]>["template"];
+} {
+  if (!runtimeConnected || !runtimeInitialized) {
+    return {
+      label: "offline",
+      detail: "The host runtime is not connected right now.",
+      template: "grey",
+    };
+  }
+
+  if (task.status === "failed") {
+    return {
+      label: "failed",
+      detail: "The last turn failed. Review the error or retry from the main task card.",
+      template: "red",
+    };
+  }
+
+  if (task.queuedMessageCount > 0) {
+    return {
+      label: "queued",
+      detail:
+        task.status === "awaiting-approval"
+          ? "Your newest Feishu message is queued, but the current turn is waiting for approval before it can run."
+          : task.status === "blocked"
+            ? "Your newest Feishu message is queued, but the current turn is blocked on user input."
+            : task.status === "running"
+              ? "Codex is still thinking on the current turn. Your newest Feishu message is queued behind it."
+              : "A queued Feishu message is waiting to start.",
+      template: "orange",
+    };
+  }
+
+  if (task.status === "awaiting-approval") {
+    return {
+      label: "waiting for approval",
+      detail: "A pending approval must be resolved before the queued Feishu message can run.",
+      template: "yellow",
+    };
+  }
+
+  if (task.status === "blocked") {
+    return {
+      label: "blocked",
+      detail: "The host task is waiting on user input before it can continue.",
+      template: "orange",
+    };
+  }
+
+  if (task.status === "running") {
+    return {
+      label: "thinking",
+      detail: "Codex is actively working on the current turn.",
+      template: "turquoise",
+    };
+  }
+
+  if (task.status === "completed" || task.status === "interrupted" || task.status === "idle") {
+    return {
+      label: "idle",
+      detail: "No busy turn is active right now.",
+      template: "green",
+    };
+  }
+
+  return {
+    label: task.status,
+    detail: `Current task status: ${task.status}.`,
+    template: "blue",
+  };
 }
 
 function taskStartGuidance(task: BridgeTask): string[] {
@@ -567,7 +656,7 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           `taskId: ${task.taskId}`,
           `status: ${task.status}`,
           ...formatExecutionProfile(task.executionProfile),
-          `feishu while running: ${formatFeishuRunningMessageMode(task.feishuRunningMessageMode)}`,
+          `busy Feishu replies: ${formatFeishuRunningMessageMode(task.feishuRunningMessageMode)}`,
           `queued next-turn messages: ${task.queuedMessageCount}`,
           `attachments: ${task.assets.length}`,
           `messages: ${task.conversation.length}`,
@@ -610,17 +699,6 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
           text: `Plan Mode: ${task.executionProfile.planMode ? "On" : "Off"}`,
           type: task.executionProfile.planMode ? "primary" : "default",
           value: baseActionValue("task.toggle.plan-mode", binding, {
-            taskId: task.taskId,
-            revision,
-          }),
-        }),
-        button({
-          text:
-            task.feishuRunningMessageMode === "queue"
-              ? "While Running: Queue Next Turn"
-              : "While Running: Steer Current Turn",
-          type: task.feishuRunningMessageMode === "queue" ? "primary" : "default",
-          value: baseActionValue("task.toggle.feishu-running-mode", binding, {
             taskId: task.taskId,
             revision,
           }),
@@ -765,6 +843,75 @@ export function createTaskRenameCard(data: FeishuTaskRenameCardData): FeishuInte
   };
 }
 
+export function createTaskActivityCard(data: FeishuTaskActivityCardData): FeishuInteractiveCard {
+  const note = truncateNote(data.note);
+  const { task, binding, revision, runtimeConnected, runtimeInitialized } = data;
+  const activityState = formatTaskActivityState(task, runtimeConnected, runtimeInitialized);
+  const canForceQueuedTurn =
+    task.queuedMessageCount > 0 &&
+    runtimeConnected &&
+    runtimeInitialized &&
+    task.status !== "awaiting-approval" &&
+    task.status !== "blocked";
+
+  return {
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+    },
+    header: {
+      title: plainText(`Task Activity: ${task.title}`),
+      template: activityState.template,
+    },
+    elements: [
+      markdown(
+        [
+          "**Current Agent Status**",
+          `state: ${activityState.label}`,
+          `detail: ${activityState.detail}`,
+          `task status: ${task.status}`,
+          `queued next-turn messages: ${task.queuedMessageCount}`,
+        ].join("\n"),
+      ),
+      ...(note ? [divider(), markdown(`**Latest Update**\n${note}`)] : []),
+      divider(),
+      markdown(
+        [
+          "**What happens next**",
+          canForceQueuedTurn
+            ? "- the queued Feishu message will wait unless you force it to run now"
+            : "- the main task card still owns rename, approvals, retry, archive, and other persistent controls",
+          task.status === "running" && task.queuedMessageCount > 0
+            ? "- forcing it now interrupts the current turn and starts the next queued Feishu message"
+            : task.status === "awaiting-approval"
+              ? "- resolve the pending approval before the queued message can start"
+              : task.status === "blocked"
+                ? "- unblock the current task before the queued message can start"
+                : "- this card will refresh as the queued work advances",
+        ].join("\n"),
+      ),
+      ...(canForceQueuedTurn
+        ? [
+            divider(),
+            action([
+              button({
+                text:
+                  task.status === "running" && task.activeTurnId
+                    ? "Interrupt + Run Next Now"
+                    : "Run Next Queued Message Now",
+                type: "primary",
+                value: baseActionValue("task.force-turn", binding, {
+                  taskId: task.taskId,
+                  revision,
+                }),
+              }),
+            ]),
+          ]
+        : []),
+    ],
+  };
+}
+
 export function createTaskStatusSnapshotCard(data: FeishuTaskStatusSnapshotCardData): FeishuInteractiveCard {
   const note = truncateNote(data.note);
   const { task } = data;
@@ -785,7 +932,7 @@ export function createTaskStatusSnapshotCard(data: FeishuTaskStatusSnapshotCardD
           `taskId: ${task.taskId}`,
           `status: ${task.status}`,
           ...formatExecutionProfile(task.executionProfile),
-          `feishu while running: ${formatFeishuRunningMessageMode(task.feishuRunningMessageMode)}`,
+          `busy Feishu replies: ${formatFeishuRunningMessageMode(task.feishuRunningMessageMode)}`,
           `queued next-turn messages: ${task.queuedMessageCount}`,
           `attachments: ${task.assets.length}`,
           `messages: ${task.conversation.length}`,

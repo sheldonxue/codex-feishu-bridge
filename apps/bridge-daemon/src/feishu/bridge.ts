@@ -18,6 +18,7 @@ import {
   createArchivedThreadCard,
   createCardTestCard,
   createDraftCard,
+  createTaskActivityCard,
   createTaskInspectionSnapshotCard,
   createTaskRenameCard,
   createTaskControlCard,
@@ -59,6 +60,7 @@ interface PersistedFeishuState {
   processedEventIds: string[];
   drafts: FeishuThreadDraft[];
   taskCards: FeishuTaskCardState[];
+  activityCards: FeishuTaskActivityCardState[];
   archivedThreads: FeishuArchivedThreadState[];
 }
 
@@ -86,6 +88,16 @@ interface FeishuDraftAttachment {
 }
 
 interface FeishuTaskCardState {
+  chatId: string;
+  threadKey: string;
+  rootMessageId?: string;
+  taskId: string;
+  messageId: string;
+  revision: number;
+  note?: string;
+}
+
+interface FeishuTaskActivityCardState {
   chatId: string;
   threadKey: string;
   rootMessageId?: string;
@@ -328,6 +340,23 @@ function formatTaskSummary(task: BridgeTask): string {
     ...formatExecutionProfile(task.executionProfile),
     task.feishuBinding ? `threadKey: ${task.feishuBinding.threadKey}` : "threadKey: unbound",
   ].join("\n");
+}
+
+function queuedMessageNotice(task: BridgeTask, sourceLabel: string): string {
+  if (task.queuedMessageCount <= 1) {
+    return `Queued the latest ${sourceLabel} message for the next turn.`;
+  }
+
+  return `Queued the latest ${sourceLabel} message. ${task.queuedMessageCount} Feishu messages are now waiting.`;
+}
+
+function queuedAttachmentNotice(task: BridgeTask, actorId: string, kind: "image" | "file"): string {
+  const attachmentLabel = kind === "image" ? "photo" : "file";
+  if (task.queuedMessageCount <= 1) {
+    return `Queued the ${attachmentLabel} from ${actorId} for the next turn.`;
+  }
+
+  return `Queued the ${attachmentLabel} from ${actorId}. ${task.queuedMessageCount} Feishu messages are now waiting.`;
 }
 
 function readCardFormString(
@@ -635,6 +664,7 @@ export class FeishuBridge {
   private readonly processedEventIds = new Set<string>();
   private readonly threadDrafts = new Map<string, FeishuThreadDraft>();
   private readonly threadTaskCards = new Map<string, FeishuTaskCardState>();
+  private readonly threadActivityCards = new Map<string, FeishuTaskActivityCardState>();
   private readonly archivedThreads = new Map<string, FeishuArchivedThreadState>();
   private serviceUnsubscribe: (() => void) | null = null;
   private tenantAccessToken?: string;
@@ -685,6 +715,7 @@ export class FeishuBridge {
       processedEventIds: [],
       drafts: [],
       taskCards: [],
+      activityCards: [],
       archivedThreads: [],
     });
     for (const eventId of persisted.processedEventIds.slice(-200)) {
@@ -699,6 +730,9 @@ export class FeishuBridge {
     }
     for (const card of persisted.taskCards ?? []) {
       this.threadTaskCards.set(draftStorageKey(card), card);
+    }
+    for (const card of persisted.activityCards ?? []) {
+      this.threadActivityCards.set(draftStorageKey(card), card);
     }
     for (const archivedThread of persisted.archivedThreads ?? []) {
       this.archivedThreads.set(draftStorageKey(archivedThread), archivedThread);
@@ -724,6 +758,7 @@ export class FeishuBridge {
     this.subscribed = false;
     this.threadDrafts.clear();
     this.threadTaskCards.clear();
+    this.threadActivityCards.clear();
     this.archivedThreads.clear();
     void this.longConnectionHandle?.stop();
     this.longConnectionHandle = null;
@@ -851,6 +886,18 @@ export class FeishuBridge {
     if (!task?.feishuBinding) {
       return;
     }
+    const activityCard = this.getThreadActivityCard(task.feishuBinding);
+    const syncActivityCard = async (note?: string, forceReply = false): Promise<void> => {
+      if (!activityCard && !forceReply) {
+        return;
+      }
+      await this.renderTaskActivityCard({
+        task,
+        binding: task.feishuBinding!,
+        note,
+        forceReply,
+      });
+    };
 
     const syncedAgentReplies = this.extractAgentReplies(event, task);
     if (syncedAgentReplies.length > 0) {
@@ -860,6 +907,7 @@ export class FeishuBridge {
           syncedAgentReply,
         );
       }
+      await syncActivityCard("Codex replied in this Feishu thread.");
       await this.renderTaskControlCard({
         task,
         binding: task.feishuBinding,
@@ -871,9 +919,22 @@ export class FeishuBridge {
       case "task.updated": {
         const payload =
           event.payload && typeof event.payload === "object"
-            ? (event.payload as { titleRenamed?: boolean; nextTitle?: string; renamedBy?: string })
+            ? (event.payload as {
+                titleRenamed?: boolean;
+                nextTitle?: string;
+                renamedBy?: string;
+                queuedMessageStartFailed?: boolean;
+                queuedMessageError?: string;
+              })
             : {};
         if (!payload.titleRenamed) {
+          if (payload.queuedMessageStartFailed) {
+            await syncActivityCard(
+              `Failed to start the queued Feishu message: ${payload.queuedMessageError ?? "unknown error"}.`,
+            );
+            return;
+          }
+          await syncActivityCard();
           return;
         }
         await this.renderTaskControlCard({
@@ -886,19 +947,22 @@ export class FeishuBridge {
                 ? `Task renamed to ${payload.nextTitle ?? task.title}.`
                 : `Task renamed to ${payload.nextTitle ?? task.title}.`,
         });
+        await syncActivityCard(`Task renamed to ${payload.nextTitle ?? task.title}.`);
         return;
       }
       case "task.message.queued":
+        await syncActivityCard(queuedMessageNotice(task, "Feishu"));
         await this.renderTaskControlCard({
           task,
           binding: task.feishuBinding,
-          note:
-            task.queuedMessageCount === 1
-              ? "Queued 1 Feishu message for the next turn."
-              : `Queued ${task.queuedMessageCount} Feishu messages for upcoming turns.`,
         });
         return;
       case "task.message.sent":
+        await syncActivityCard(
+          task.status === "running"
+            ? "The queued Feishu message started and Codex is thinking."
+            : "The queued Feishu message started.",
+        );
         await this.renderTaskControlCard({
           task,
           binding: task.feishuBinding,
@@ -920,6 +984,7 @@ export class FeishuBridge {
           note: `Approval requested: ${approval.kind} - ${approval.reason}`,
           forceReply: true,
         });
+        await syncActivityCard(`Approval requested: ${approval.kind} - ${approval.reason}.`);
         return;
       }
       case "approval.resolved": {
@@ -950,6 +1015,7 @@ export class FeishuBridge {
           task.feishuBinding.rootMessageId ?? task.feishuBinding.threadKey,
           formatApprovalResolved(task, approvalPayload),
         );
+        await syncActivityCard(`Approval ${requestId ?? "unknown"} resolved as ${resolutionState}.`);
         await this.renderTaskControlCard({
           task,
           binding: task.feishuBinding,
@@ -958,6 +1024,7 @@ export class FeishuBridge {
         return;
       }
       case "task.failed":
+        await syncActivityCard(formatTaskFailure(task, event.payload));
         await this.replyToMessage(
           task.feishuBinding.rootMessageId ?? task.feishuBinding.threadKey,
           formatTaskFailure(task, event.payload),
@@ -970,6 +1037,7 @@ export class FeishuBridge {
         return;
       case "task.completed":
       case "task.interrupted":
+        await syncActivityCard();
         await this.renderTaskControlCard({
           task,
           binding: task.feishuBinding,
@@ -1155,11 +1223,21 @@ export class FeishuBridge {
     });
 
     try {
-      await this.options.service.sendMessage(task.taskId, {
+      const previousQueuedMessageCount = task.queuedMessageCount;
+      const updatedTask = await this.options.service.sendMessage(task.taskId, {
         content: text || `Message from ${actorId}`,
         source: "feishu",
         replyToFeishu: true,
       });
+      if (updatedTask.queuedMessageCount > previousQueuedMessageCount && task.feishuBinding) {
+        await this.renderTaskActivityCard({
+          task: this.options.service.getTask(task.taskId) ?? updatedTask,
+          binding: task.feishuBinding,
+          replyTargetId,
+          note: queuedMessageNotice(updatedTask, "Feishu"),
+          forceReply: true,
+        });
+      }
     } catch (error) {
       this.options.logger.warn("failed to route feishu task message", {
         ...summary,
@@ -1167,6 +1245,15 @@ export class FeishuBridge {
         taskId: task.taskId,
         error,
       });
+      if (task.feishuBinding) {
+        await this.renderTaskActivityCard({
+          task,
+          binding: task.feishuBinding,
+          replyTargetId,
+          note: `Failed to send the latest Feishu message: ${error instanceof Error ? error.message : String(error)}.`,
+          forceReply: true,
+        });
+      }
       await this.replyToMessage(
         task.feishuBinding?.rootMessageId ?? replyTargetId,
         `Task action failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1224,13 +1311,24 @@ export class FeishuBridge {
       contentBase64: attachment.buffer.toString("base64"),
       kind: attachment.kind,
     });
-    await this.options.service.sendMessage(task.taskId, {
+    const previousQueuedMessageCount = task.queuedMessageCount;
+    const updatedTask = await this.options.service.sendMessage(task.taskId, {
       content: "",
       assetIds: [upload.asset.assetId],
       source: "feishu",
       replyToFeishu: true,
       executionProfile: task.executionProfile,
     });
+    if (updatedTask.queuedMessageCount > previousQueuedMessageCount && task.feishuBinding) {
+      await this.renderTaskActivityCard({
+        task: this.options.service.getTask(task.taskId) ?? updatedTask,
+        binding: task.feishuBinding,
+        replyTargetId,
+        note: queuedAttachmentNotice(updatedTask, actorId, attachment.kind),
+        forceReply: true,
+      });
+      return;
+    }
 
     await this.replyToMessage(
       task.feishuBinding?.rootMessageId ?? replyTargetId,
@@ -1454,6 +1552,7 @@ export class FeishuBridge {
 
       this.deleteArchivedThread(currentBinding);
       this.deleteThreadDraft(currentBinding);
+      this.deleteThreadActivityCard(currentBinding);
       const reboundTask = await this.options.service.bindFeishuThread(targetTaskId, currentBinding);
       await this.renderTaskControlCard({
         task: reboundTask,
@@ -1573,6 +1672,24 @@ export class FeishuBridge {
     }
 
     this.threadTaskCards.delete(draftStorageKey(binding));
+    void this.persistState();
+  }
+
+  private getThreadActivityCard(binding: Pick<FeishuThreadBinding, "chatId" | "threadKey">): FeishuTaskActivityCardState | null {
+    return this.threadActivityCards.get(draftStorageKey(binding)) ?? null;
+  }
+
+  private async saveThreadActivityCard(card: FeishuTaskActivityCardState): Promise<void> {
+    this.threadActivityCards.set(draftStorageKey(card), card);
+    await this.persistState();
+  }
+
+  private deleteThreadActivityCard(binding: Pick<FeishuThreadBinding, "chatId" | "threadKey"> | null): void {
+    if (!binding) {
+      return;
+    }
+
+    this.threadActivityCards.delete(draftStorageKey(binding));
     void this.persistState();
   }
 
@@ -1725,6 +1842,54 @@ export class FeishuBridge {
     return card;
   }
 
+  private async renderTaskActivityCard(params: {
+    task: BridgeTask;
+    binding: FeishuThreadBinding;
+    replyTargetId?: string;
+    note?: string;
+    forceReply?: boolean;
+    persistAsCurrentCard?: boolean;
+  }): Promise<FeishuInteractiveCard | null> {
+    const { task, binding, replyTargetId, note, forceReply = false, persistAsCurrentCard = true } = params;
+    const existing = this.getThreadActivityCard(binding);
+    const revision = (existing?.revision ?? 0) + 1;
+    const runtimeHealth = await this.options.service.readRuntimeHealth();
+    const card = createTaskActivityCard({
+      task,
+      binding,
+      revision,
+      note: note ?? existing?.note,
+      runtimeConnected: runtimeHealth.connected,
+      runtimeInitialized: runtimeHealth.initialized,
+    });
+
+    let messageId = forceReply ? undefined : existing?.messageId;
+    const nextReplyTargetId =
+      replyTargetId ??
+      (forceReply ? (binding.rootMessageId ?? binding.threadKey) : !messageId ? binding.rootMessageId : undefined);
+    if (!messageId && nextReplyTargetId) {
+      messageId = await this.sendCardReply(nextReplyTargetId, card);
+    } else if (messageId) {
+      await this.patchCardMessage(messageId, card);
+    } else {
+      return null;
+    }
+
+    if (persistAsCurrentCard) {
+      await this.saveThreadActivityCard({
+        chatId: binding.chatId,
+        threadKey: binding.threadKey,
+        rootMessageId: binding.rootMessageId,
+        taskId: task.taskId,
+        messageId,
+        revision,
+        note: note ?? existing?.note,
+      });
+    }
+
+    return card;
+  }
+
   private async replyTaskStatusSnapshotCard(params: {
     task: BridgeTask;
     binding: FeishuThreadBinding;
@@ -1855,6 +2020,7 @@ export class FeishuBridge {
 
   private async markThreadUnbound(binding: FeishuThreadBinding, note: string): Promise<void> {
     const existing = this.getThreadTaskCard(binding);
+    this.deleteThreadActivityCard(binding);
     if (!existing?.messageId) {
       this.deleteThreadTaskCard(binding);
       return;
@@ -2514,6 +2680,36 @@ export class FeishuBridge {
           replyTargetId: binding.rootMessageId ?? event?.open_message_id ?? currentCard?.messageId ?? binding.threadKey,
         });
         return;
+      case "task.force-turn": {
+        try {
+          await this.options.service.forceStartQueuedMessage(task.taskId);
+          note = "Forced the next queued Feishu message to run immediately.";
+        } catch (error) {
+          note = error instanceof Error ? error.message : String(error);
+        }
+        const refreshedTask = this.options.service.getTask(task.taskId) ?? task;
+        const nextActivityCard =
+          (await this.renderTaskActivityCard({
+            task: refreshedTask,
+            binding,
+            note,
+          })) ??
+          null;
+        const persistedActivityCard = this.getThreadActivityCard(binding);
+        if (
+          event?.open_message_id &&
+          nextActivityCard &&
+          persistedActivityCard?.messageId &&
+          event.open_message_id !== persistedActivityCard.messageId
+        ) {
+          await this.patchCardMessage(event.open_message_id, nextActivityCard);
+        }
+        await this.renderTaskControlCard({
+          task: refreshedTask,
+          binding,
+        });
+        return nextActivityCard ?? undefined;
+      }
       case "task.interrupt":
         await this.options.service.interruptTask(task.taskId);
         note = `Interrupted task ${task.taskId}.`;
@@ -2530,6 +2726,7 @@ export class FeishuBridge {
         const archivedAt = new Date().toISOString();
         await this.options.service.unbindFeishuThread(task.taskId);
         this.deleteThreadDraft(binding);
+        this.deleteThreadActivityCard(binding);
         await this.saveArchivedThread({
           chatId: binding.chatId,
           threadKey: binding.threadKey,
@@ -2567,6 +2764,7 @@ export class FeishuBridge {
       case "task.unbind":
         await this.options.service.unbindFeishuThread(task.taskId);
         this.deleteThreadTaskCard(binding);
+        this.deleteThreadActivityCard(binding);
         {
           const resetDraft: FeishuThreadDraft = {
             ...createDefaultDraft(binding),
@@ -2638,14 +2836,24 @@ export class FeishuBridge {
     }
 
     const nextTask = this.options.service.getTask(task.taskId) ?? task;
-    return (
+    const nextCard =
       (await this.renderTaskControlCard({
         task: nextTask,
         binding,
         note,
       })) ??
-      (await this.buildTaskControlCard(nextTask, binding, revision, note))
-    );
+      (await this.buildTaskControlCard(nextTask, binding, revision, note));
+
+    const persistedCurrentCard = this.getThreadTaskCard(binding);
+    if (
+      event?.open_message_id &&
+      persistedCurrentCard?.messageId &&
+      event.open_message_id !== persistedCurrentCard.messageId
+    ) {
+      await this.patchCardMessage(event.open_message_id, nextCard);
+    }
+
+    return nextCard;
   }
 
   private async startLongConnection(): Promise<void> {
@@ -2845,6 +3053,7 @@ export class FeishuBridge {
       processedEventIds: [...this.processedEventIds].slice(-200),
       drafts: [...this.threadDrafts.values()],
       taskCards: [...this.threadTaskCards.values()],
+      activityCards: [...this.threadActivityCards.values()],
       archivedThreads: [...this.archivedThreads.values()],
     } satisfies PersistedFeishuState);
   }

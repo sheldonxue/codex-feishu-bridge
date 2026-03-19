@@ -1515,6 +1515,90 @@ describe("bridge service runtime status mapping", () => {
     await runtime.dispose();
   });
 
+  it("locks explicit task titles from Feishu-style creation so later binds and runtime syncs do not reset them", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-created-title-lock-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new FakeStatusRuntime();
+    runtime.setThreads([
+      {
+        id: "thread-awaiting-approval",
+        name: "Needs approval",
+        cwd: TEST_REPO_ROOT,
+        updatedAt: "2026-03-19T02:10:00.000Z",
+        status: {
+          type: "active",
+          activeFlags: ["waitingOnApproval"],
+        },
+      },
+    ]);
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const created = await service.createTask({
+      title: "Pinned Feishu title",
+      source: "feishu",
+      replyToFeishu: true,
+    });
+    assert.equal(created.title, "Pinned Feishu title");
+    assert.equal(created.titleLocked, true);
+
+    const bound = await service.bindFeishuThread(created.taskId, {
+      chatId: "oc_chat_id",
+      threadKey: "omt_title_lock",
+      rootMessageId: "om_title_lock",
+    });
+    assert.equal(bound.title, "Pinned Feishu title");
+    assert.equal(bound.feishuRunningMessageMode, "queue");
+
+    const syncedTasks = await service.syncRuntimeThreads();
+    const syncedTask = syncedTasks.find((task) => task.taskId === created.taskId);
+    assert.ok(syncedTask);
+    assert.equal(syncedTask?.title, "Pinned Feishu title");
+    assert.equal(syncedTask?.titleLocked, true);
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
+  it("queues Feishu messages by default while a task is awaiting approval", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-feishu-awaiting-approval-queue-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new FakeStatusRuntime();
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    const created = await service.createTask({
+      title: "Approval queue task",
+      source: "feishu",
+      replyToFeishu: true,
+    });
+    assert.equal(created.status, "awaiting-approval");
+    assert.equal(created.feishuRunningMessageMode, "queue");
+
+    const queued = await service.sendMessage(created.taskId, {
+      content: "Check again after approval.",
+      source: "feishu",
+      replyToFeishu: true,
+    });
+
+    assert.equal(queued.status, "awaiting-approval");
+    assert.equal(queued.activeTurnId, undefined);
+    assert.equal(queued.queuedMessageCount, 1);
+
+    await service.dispose();
+    await runtime.dispose();
+  });
+
   it("tolerates missing rollout files when importing host threads", async () => {
     const namespace = randomUUID();
     const config = createTestBridgeConfig(namespace);

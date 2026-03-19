@@ -168,7 +168,7 @@ export function createBridgeTask(seed: BridgeTaskSeed): BridgeTask {
     status: "idle",
     executionProfile: structuredClone(seed.executionProfile ?? {}),
     desktopReplySyncToFeishu: false,
-    feishuRunningMessageMode: "steer",
+    feishuRunningMessageMode: "queue",
     queuedMessageCount: 0,
     feishuBindingDisabled: false,
     pendingApprovals: [],

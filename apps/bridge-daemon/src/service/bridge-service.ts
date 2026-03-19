@@ -198,7 +198,7 @@ function normalizeTaskOrigin(
 function normalizeFeishuRunningMessageMode(
   mode: BridgeTask["feishuRunningMessageMode"] | undefined,
 ): BridgeTask["feishuRunningMessageMode"] {
-  return mode === "queue" ? "queue" : "steer";
+  return mode === "steer" ? "steer" : "queue";
 }
 
 function normalizeQueuedMessageCount(value: number | undefined): number {
@@ -355,6 +355,16 @@ function mapTurnStatus(status: CodexTurnDescriptor["status"]): TaskStatus {
 
 function shouldAutoImportRuntimeThread(status: TaskStatus): boolean {
   return status === "queued" || status === "running" || status === "awaiting-approval" || status === "blocked";
+}
+
+function isTaskBusyForQueuedFeishuMessage(task: Pick<BridgeTask, "status" | "activeTurnId">): boolean {
+  return (
+    Boolean(task.activeTurnId) ||
+    task.status === "queued" ||
+    task.status === "running" ||
+    task.status === "awaiting-approval" ||
+    task.status === "blocked"
+  );
 }
 
 function runtimeStatusType(status: unknown): string {
@@ -890,6 +900,10 @@ export class BridgeService {
     return this.options.runtime.listModels();
   }
 
+  async readRuntimeHealth() {
+    return this.options.runtime.health();
+  }
+
   async syncRuntimeThreads(): Promise<BridgeTask[]> {
     try {
       const runtimeThreads = await this.options.runtime.listThreads();
@@ -990,11 +1004,18 @@ export class BridgeService {
     });
 
     let task = this.upsertTaskFromDescriptor(descriptor, "bridge-managed");
-    task.title = request.title || task.title;
+    if (request.title?.trim()) {
+      task.title = request.title.trim();
+      task.titleLocked = true;
+    }
     task.workspaceRoot = workspaceRoot;
     task.taskOrigin = taskOriginFromSource(request.source, task.mode);
     task.executionProfile = normalizeExecutionProfile(request.executionProfile);
     task.desktopReplySyncToFeishu = request.replyToFeishu ?? task.desktopReplySyncToFeishu;
+    task.feishuRunningMessageMode =
+      request.source === "feishu" || request.replyToFeishu
+        ? "queue"
+        : normalizeFeishuRunningMessageMode(task.feishuRunningMessageMode);
     this.touchTask(task);
     await this.persistState();
     this.emitEvent(task.taskId, "task.created", { task: cloneTask(task) });
@@ -1064,11 +1085,14 @@ export class BridgeService {
       assetIds,
     };
 
+    if (messageSource === "feishu" && task.feishuRunningMessageMode === "queue" && isTaskBusyForQueuedFeishuMessage(task)) {
+      await this.refreshTaskRuntimeStatus(task);
+    }
+
     if (
-      task.activeTurnId &&
-      task.status === "running" &&
       messageSource === "feishu" &&
-      task.feishuRunningMessageMode === "queue"
+      task.feishuRunningMessageMode === "queue" &&
+      isTaskBusyForQueuedFeishuMessage(task)
     ) {
       this.enqueueQueuedMessage(task, normalizedSource);
       this.touchTask(task);
@@ -1121,6 +1145,21 @@ export class BridgeService {
     }
 
     return cloneTask(task);
+  }
+
+  private async refreshTaskRuntimeStatus(task: BridgeTask): Promise<void> {
+    try {
+      const descriptor = await this.options.runtime.readThread(task.threadId);
+      if (!descriptor) {
+        return;
+      }
+      this.upsertTaskFromDescriptor(descriptor, task.mode);
+    } catch (error) {
+      this.options.logger.warn("failed to refresh task runtime status before feishu queue decision", {
+        taskId: task.taskId,
+        error,
+      });
+    }
   }
 
   private async resumeImportedTaskBeforeMessage(task: BridgeTask): Promise<void> {
@@ -1189,6 +1228,7 @@ export class BridgeService {
     task.feishuBinding = binding;
     task.feishuBindingDisabled = false;
     task.desktopReplySyncToFeishu = true;
+    task.feishuRunningMessageMode = "queue";
     this.touchTask(task);
     await this.persistState();
     this.emitEvent(task.taskId, "feishu.thread.bound", {
@@ -1298,6 +1338,30 @@ export class BridgeService {
       renamedBy: request.source ?? "runtime",
     });
     return cloneTask(task);
+  }
+
+  async forceStartQueuedMessage(taskId: string): Promise<BridgeTask> {
+    const task = this.requireTask(taskId);
+    if (this.getQueuedMessageCount(taskId) === 0) {
+      return cloneTask(task);
+    }
+
+    if (task.status === "awaiting-approval") {
+      throw new Error("Task is waiting for approval. Resolve the approval before forcing the queued turn.");
+    }
+
+    if (task.status === "blocked") {
+      throw new Error("Task is blocked on user input. Unblock the current turn before forcing the queued turn.");
+    }
+
+    if (task.activeTurnId && task.status === "running") {
+      await this.interruptTask(taskId);
+    } else if (task.activeTurnId) {
+      throw new Error("Task still has an active turn. Wait for it to clear before forcing the queued turn.");
+    }
+
+    await this.processQueuedMessages(taskId);
+    return cloneTask(this.requireTask(taskId));
   }
 
   async resolveApproval(taskId: string, requestId: string, decision: CodexApprovalDecision): Promise<BridgeTask> {
@@ -1476,6 +1540,11 @@ export class BridgeService {
     } catch (error) {
       this.requeueQueuedMessageFront(task, nextQueuedMessage);
       await this.persistState();
+      this.emitEvent(task.taskId, "task.updated", {
+        task: cloneTask(task),
+        queuedMessageStartFailed: true,
+        queuedMessageError: error instanceof Error ? error.message : String(error),
+      });
       this.options.logger.warn("failed to start queued task message", {
         taskId,
         error,
@@ -1802,7 +1871,9 @@ export class BridgeService {
     if (existing) {
       existing.mode = mode;
       existing.taskOrigin = normalizeTaskOrigin(existing.taskOrigin, mode);
-      existing.title = descriptor.name ?? existing.title;
+      if (!existing.titleLocked && descriptor.name?.trim()) {
+        existing.title = descriptor.name;
+      }
       existing.workspaceRoot = descriptor.cwd ?? existing.workspaceRoot;
       existing.status = mapRuntimeStatus(descriptor.status);
       existing.executionProfile = normalizeExecutionProfile(existing.executionProfile);
