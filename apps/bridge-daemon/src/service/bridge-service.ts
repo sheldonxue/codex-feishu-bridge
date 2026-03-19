@@ -1091,7 +1091,7 @@ export class BridgeService {
       assetIds,
     };
 
-    if (messageSource === "feishu" && task.feishuRunningMessageMode === "queue" && isTaskBusyForQueuedFeishuMessage(task)) {
+    if (messageSource === "feishu" && task.feishuRunningMessageMode === "queue") {
       await this.refreshTaskRuntimeStatus(task);
     }
 

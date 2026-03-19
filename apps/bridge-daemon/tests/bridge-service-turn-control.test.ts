@@ -101,7 +101,19 @@ class DelayedTurnStartRuntime implements CodexRuntime {
   }
 
   async readThread(): Promise<CodexThreadDescriptor | null> {
-    return null;
+    return {
+      id: "thread-race",
+      name: "Race task",
+      cwd: TEST_REPO_ROOT,
+      updatedAt: "2026-03-17T00:00:00.000Z",
+      status: this.activeTurnId
+        ? {
+            type: "active",
+          }
+        : {
+            type: "idle",
+          },
+    };
   }
 
   async resumeThread(threadId: string): Promise<CodexThreadDescriptor> {
@@ -162,6 +174,8 @@ class DelayedTurnStartRuntime implements CodexRuntime {
     }
 
     this.interruptCalls.push(params);
+    this.activeTurnId = undefined;
+    this.turnStarted = false;
   }
 
   async respondToRequest(_requestId: number | string, _result: unknown): Promise<void> {}
@@ -333,6 +347,62 @@ describe("bridge service turn control", () => {
           },
         ],
       });
+    } finally {
+      await service.dispose();
+      await runtime.dispose();
+    }
+  });
+
+  it("refreshes runtime thread status before queueing Feishu messages when local task state is stale", async () => {
+    const namespace = randomUUID();
+    const config = createTestBridgeConfig(namespace);
+    const logger = createConsoleLogger("bridge-service-turn-control-test");
+    await prepareBridgeDirectories(config);
+
+    const runtime = new DelayedTurnStartRuntime();
+    await runtime.start();
+
+    const service = new BridgeService({ config, logger, runtime });
+    await service.initialize();
+
+    try {
+      const created = await service.createTask({
+        title: "Stale queue task",
+        prompt: "Start the first turn.",
+      });
+      assert.equal(created.activeTurnId, "turn-race");
+      assert.equal(created.status, "running");
+
+      await service.updateTaskSettings(created.taskId, {
+        feishuRunningMessageMode: "queue",
+      });
+
+      const internalTask = (
+        service as unknown as {
+          tasks: Map<
+            string,
+            {
+              status: string;
+              activeTurnId?: string;
+            }
+          >;
+        }
+      ).tasks.get(created.taskId);
+      assert.ok(internalTask);
+      internalTask.status = "idle";
+      internalTask.activeTurnId = undefined;
+
+      const queued = await service.sendMessage(created.taskId, {
+        content: "Queue even if local state went stale.",
+        source: "feishu",
+        replyToFeishu: true,
+        receiptId: "receipt-queued-stale-runtime",
+      });
+
+      assert.equal(queued.queuedMessageCount, 1);
+      assert.equal(runtime.startTurnCalls.length, 1);
+      assert.equal(runtime.steerCalls.length, 0);
+      assert.equal(service.getTask(created.taskId)?.status, "running");
     } finally {
       await service.dispose();
       await runtime.dispose();
