@@ -573,6 +573,14 @@ describe("feishu long connection ingress", () => {
           ),
         "initial bound task card",
       );
+      const initialBoundTaskCardRequest = harness.requests.find(
+        (request) =>
+          request.method === "POST" &&
+          request.url.includes("/open-apis/im/v1/messages/") &&
+          requestContainsCardTitle(request, `Task: ${task.title}`),
+      );
+      assert.ok(initialBoundTaskCardRequest);
+      assert.doesNotMatch(initialBoundTaskCardRequest.body ?? "", /"value":""/);
 
       const previousApprovalCardReplyCount = harness.requests.filter(
         (request) =>

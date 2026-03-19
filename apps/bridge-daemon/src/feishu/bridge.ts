@@ -18,6 +18,8 @@ import {
   createArchivedThreadCard,
   createCardTestCard,
   createDraftCard,
+  FEISHU_TASK_EFFORT_DEFAULT_OPTION,
+  FEISHU_TASK_MODEL_DEFAULT_OPTION,
   createTaskActivityCard,
   createTaskInspectionSnapshotCard,
   createTaskPermissionCard,
@@ -2722,7 +2724,8 @@ export class FeishuBridge {
 
     switch (value.kind) {
       case "task.select.model": {
-        const modelId = action?.option ?? "";
+        const rawModelId = action?.option ?? "";
+        const modelId = rawModelId === FEISHU_TASK_MODEL_DEFAULT_OPTION ? "" : rawModelId;
         const models = await this.options.service.listModels();
         const model = modelId ? models.find((entry) => entry.id === modelId || entry.model === modelId) : null;
         if (modelId && !model) {
@@ -2751,7 +2754,8 @@ export class FeishuBridge {
         break;
       }
       case "task.select.effort": {
-        const rawEffort = action?.option ?? "";
+        const rawEffortValue = action?.option ?? "";
+        const rawEffort = rawEffortValue === FEISHU_TASK_EFFORT_DEFAULT_OPTION ? "" : rawEffortValue;
         const effort = rawEffort as ReasoningEffort | "";
         if (effort && !REASONING_EFFORT_VALUES.includes(effort)) {
           note = "Unsupported reasoning effort.";

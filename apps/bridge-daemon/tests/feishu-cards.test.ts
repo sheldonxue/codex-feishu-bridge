@@ -4,6 +4,8 @@ import { describe, it } from "node:test";
 import { createBridgeTask, type FeishuThreadBinding } from "@codex-feishu-bridge/protocol";
 
 import {
+  FEISHU_TASK_EFFORT_DEFAULT_OPTION,
+  FEISHU_TASK_MODEL_DEFAULT_OPTION,
   createArchivedThreadCard,
   createDraftCard,
   createTaskActivityCard,
@@ -168,6 +170,9 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Rate Limits/);
     assert.match(taskJson, /busy Feishu replies: queue next turn/);
     assert.match(taskJson, /queued next-turn messages: 2/);
+    assert.match(taskJson, new RegExp(FEISHU_TASK_MODEL_DEFAULT_OPTION));
+    assert.match(taskJson, new RegExp(FEISHU_TASK_EFFORT_DEFAULT_OPTION));
+    assert.doesNotMatch(taskJson, /"value":""/);
   });
 
   it("renders a dedicated rename card with a text input that submits form values", () => {

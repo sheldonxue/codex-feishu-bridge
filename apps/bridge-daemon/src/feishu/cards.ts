@@ -12,6 +12,8 @@ import type {
 const DEFAULT_NEW_SANDBOX: SandboxMode = "workspace-write";
 const DEFAULT_NEW_APPROVAL_POLICY: ApprovalPolicy = "on-request";
 const CARD_NOTE_MAX_CHARS = 1400;
+export const FEISHU_TASK_MODEL_DEFAULT_OPTION = "__runtime_default__";
+export const FEISHU_TASK_EFFORT_DEFAULT_OPTION = "__model_default__";
 
 export interface FeishuInteractiveCard {
   config?: {
@@ -636,21 +638,29 @@ export function createTaskControlCard(data: FeishuTaskControlCardData): FeishuIn
   const selectedApprovalPolicy = task.executionProfile.approvalPolicy ?? DEFAULT_NEW_APPROVAL_POLICY;
   const modelDescriptor = data.modelOptions.find((entry) => entry.id === selectedModel);
   const modelOptions = [
-    { label: "runtime-default", value: "" },
+    { label: "runtime-default", value: FEISHU_TASK_MODEL_DEFAULT_OPTION },
     ...data.modelOptions.map((model) => ({
       label: model.isDefault ? `${model.id} (default)` : `${model.id} (${model.displayName})`,
       value: model.id,
     })),
   ];
   const effortOptions = [
-    { label: "model-default", value: "" },
+    { label: "model-default", value: FEISHU_TASK_EFFORT_DEFAULT_OPTION },
     ...((modelDescriptor?.supportedReasoningEfforts ?? ["none", "minimal", "low", "medium", "high", "xhigh"]).map((effort) => ({
       label: modelDescriptor?.defaultReasoningEffort === effort ? `${effort} (default)` : effort,
       value: effort,
     }))),
   ];
-  const currentModelLabel = resolveOptionLabel(modelOptions, selectedModel ?? "", "runtime-default");
-  const currentEffortLabel = resolveOptionLabel(effortOptions, selectedEffort ?? "", "model-default");
+  const currentModelLabel = resolveOptionLabel(
+    modelOptions,
+    selectedModel ?? FEISHU_TASK_MODEL_DEFAULT_OPTION,
+    "runtime-default",
+  );
+  const currentEffortLabel = resolveOptionLabel(
+    effortOptions,
+    selectedEffort ?? FEISHU_TASK_EFFORT_DEFAULT_OPTION,
+    "model-default",
+  );
   return {
     config: {
       wide_screen_mode: true,
