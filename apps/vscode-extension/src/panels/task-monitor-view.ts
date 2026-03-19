@@ -1079,6 +1079,8 @@ export class TaskMonitorPanel implements vscode.Disposable {
       let multiSelectMode = false;
       let pendingActionRequestIds = {};
       let nextPendingActionCounter = 0;
+      let focusedComposerState = null;
+      let pendingComposerFocus = false;
 
       function escapeHtml(value) {
         return String(value ?? "")
@@ -1247,6 +1249,45 @@ export class TaskMonitorPanel implements vscode.Disposable {
         composerAttachmentPaths[taskId] = [];
       }
 
+      function captureFocusedComposer() {
+        const composer = document.getElementById("composer");
+        const taskId = currentTaskId();
+        if (!taskId || !(composer instanceof HTMLTextAreaElement) || document.activeElement !== composer) {
+          focusedComposerState = null;
+          return;
+        }
+
+        focusedComposerState = {
+          taskId,
+          selectionStart: composer.selectionStart ?? composer.value.length,
+          selectionEnd: composer.selectionEnd ?? composer.value.length,
+        };
+      }
+
+      function restoreFocusedComposer() {
+        const composer = document.getElementById("composer");
+        const taskId = currentTaskId();
+        const canRestoreSelection =
+          focusedComposerState &&
+          focusedComposerState.taskId === taskId &&
+          composer instanceof HTMLTextAreaElement;
+        const shouldFocus = pendingComposerFocus || canRestoreSelection;
+
+        pendingComposerFocus = false;
+        if (!(composer instanceof HTMLTextAreaElement) || !shouldFocus) {
+          focusedComposerState = null;
+          return;
+        }
+
+        composer.focus();
+        if (canRestoreSelection) {
+          const nextStart = Math.max(0, Math.min(focusedComposerState.selectionStart, composer.value.length));
+          const nextEnd = Math.max(0, Math.min(focusedComposerState.selectionEnd, composer.value.length));
+          composer.setSelectionRange(nextStart, nextEnd);
+        }
+        focusedComposerState = null;
+      }
+
       function fileNameFromPath(targetPath) {
         const segments = String(targetPath ?? "").split(/[\\\\/]/);
         return segments[segments.length - 1] || targetPath;
@@ -1331,13 +1372,8 @@ export class TaskMonitorPanel implements vscode.Disposable {
           composerExecutionProfiles[state.selectedTask.taskId] = defaultComposerExecutionProfile();
         }
         trimSelectedLocalTasks();
+        pendingComposerFocus = Boolean(message.focusComposer);
         render();
-        if (message.focusComposer) {
-          const composer = document.getElementById("composer");
-          if (composer) {
-            composer.focus();
-          }
-        }
       }
 
       function flushQueuedStateMessage() {
@@ -1828,9 +1864,6 @@ export class TaskMonitorPanel implements vscode.Disposable {
                 <span>Queue Feishu messages while Codex is already running</span>
               </label>
               <div class="actions">
-                <button data-action="open-status" title="Open the bridge status page for daemon health, account, and runtime limits.">View Status</button>
-                <button class="danger" data-action="interrupt" title="Stop the task's active Codex turn as soon as the runtime accepts the interrupt.">Stop Turn</button>
-                <button data-action="retry" title="Ask Codex to retry the last turn and keep working on the same task.">Retry Last Turn</button>
                 <button data-action="rename-task" title="Rename the shared task title here and in any bound Feishu thread.">Rename Task</button>
                 <button \${task.feishuBinding ? "disabled" : ""} data-action="bind-new-feishu-topic" title="Create a new topic in the default Feishu group and bind this task to it for mobile follow-up.">Bind to New Feishu Topic</button>
                 <button \${task.feishuBinding ? "" : "disabled"} data-action="unbind" title="Detach this task from its current Feishu thread without deleting local task data.">Unbind Feishu</button>
@@ -1850,6 +1883,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
                 <span class="muted">Task-scoped draft with model, reasoning, plan mode, and local photo/file attachments. <code>Enter</code> sends, <code>Shift+Enter</code> inserts a newline, and <code>Ctrl/Cmd+Enter</code> also sends.</span>
                 <div class="composer-actions">
                   <button data-action="pick-composer-attachments" title="Attach local photos or files from this computer to the next desktop-side message.">Add Photos / Files</button>
+                  <button class="danger" data-action="interrupt" title="Stop the task's current Codex turn from the desktop composer area." \${task.activeTurnId || task.status === "running" || task.status === "awaiting-approval" ? "" : "disabled"}>Stop Turn</button>
                   <button data-action="clear-composer" title="Clear the current draft text and attached files for this task." \${currentComposerDraft() || currentComposerAttachmentPaths().length ? "" : "disabled"}>Clear Draft</button>
                   <button class="primary" data-action="send-message" title="Send the current desktop message into this Codex task.">Send Message</button>
                 </div>
@@ -1881,6 +1915,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
       function render() {
         captureConversationScroll();
+        captureFocusedComposer();
         document.getElementById("app").innerHTML = \`
           <section class="panel">
             <div class="hero">
@@ -2048,6 +2083,7 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
         resizeComposer();
         restoreConversationScroll();
+        restoreFocusedComposer();
       }
 
       window.addEventListener("message", (event) => {

@@ -69,12 +69,13 @@ describe("task monitor view source", () => {
     assert.match(source, /case "toggle-multi-select":/);
     assert.match(source, /data-action="bind-new-feishu-topic"/);
     assert.match(source, /Created a new Feishu topic and bound this task\./);
-    assert.match(source, /View Status<\/button>/);
     assert.match(source, /Stop Turn<\/button>/);
-    assert.match(source, /Retry Last Turn<\/button>/);
+    assert.doesNotMatch(source, /View Status<\/button>/);
+    assert.doesNotMatch(source, /Retry Last Turn<\/button>/);
     assert.match(source, /Rename Task<\/button>/);
     assert.match(source, /title="Create a new topic in the default Feishu group and bind this task to it for mobile follow-up\."/);
     assert.match(source, /title="Rename the shared task title here and in any bound Feishu thread\."/);
+    assert.match(source, /title="Stop the task's current Codex turn from the desktop composer area\."/);
     assert.match(source, /title="Re-fetch the current daemon snapshot and any host-thread updates\."/);
     assert.match(source, /data-action="toggle-feishu-running-mode"/);
     assert.match(source, /Queue Feishu messages while Codex is already running/);
@@ -84,7 +85,6 @@ describe("task monitor view source", () => {
     assert.match(source, /function finishPendingAction\(requestId\)/);
     assert.match(source, /function postPendingButtonMessage\(button, message\)/);
     assert.match(source, /type: "action-finished"/);
-    assert.match(source, /case "open-status":\s*postPendingButtonMessage\(target, \{ type: "open-status" \}\);\s*return;/s);
     assert.match(source, /case "rename-task":[\s\S]*postPendingButtonMessage\(target, \{ type: action, taskId \}\);\s*return;/s);
     assert.match(source, /case "pick-composer-attachments":[\s\S]*postPendingButtonMessage\(target, \{ type: "pick-composer-attachments", taskId \}\);\s*return;/s);
     assert.match(source, /case "open-diff":[\s\S]*postPendingButtonMessage\(target, \{\s*type: "open-diff"/s);
@@ -168,8 +168,12 @@ describe("task monitor view source", () => {
     assert.match(source, /let queuedStateMessage = null;/);
     assert.match(source, /let conversationPointerActive = false;/);
     assert.match(source, /let conversationInteractionLocked = false;/);
+    assert.match(source, /let focusedComposerState = null;/);
+    assert.match(source, /let pendingComposerFocus = false;/);
     assert.match(source, /private requestPostState\(forceRefreshModels = false\): void {/);
     assert.match(source, /function applyIncomingStateMessage\(message\)/);
+    assert.match(source, /function captureFocusedComposer\(\)/);
+    assert.match(source, /function restoreFocusedComposer\(\)/);
     assert.match(source, /private async flushQueuedStatePosts\(forceRefreshModels: boolean\): Promise<void> {/);
     assert.match(source, /private async readCachedModels\(forceRefresh = false\): Promise<ModelDescriptor\[]> {/);
     assert.match(source, /function flushQueuedStateMessage\(\)/);
@@ -179,6 +183,9 @@ describe("task monitor view source", () => {
     assert.match(source, /conversation\.addEventListener\("scroll", \(\) => {\s*captureConversationScroll\(\);\s*noteConversationInteraction\(\);\s*}\);/s);
     assert.match(source, /if \(conversationInteractionLocked\) {\s*queuedStateMessage = event\.data;\s*return;\s*}/s);
     assert.match(source, /window\.addEventListener\("pointerup", \(\) => {\s*handleConversationPointerUp\(\);\s*}\);/s);
+    assert.match(source, /pendingComposerFocus = Boolean\(message\.focusComposer\);/);
+    assert.match(source, /captureFocusedComposer\(\);\s*document\.getElementById\("app"\)\.innerHTML/s);
+    assert.match(source, /restoreFocusedComposer\(\);\s*}/s);
   });
 
   it("renders the monitor as an editor panel entry point instead of a sidebar view contribution", () => {
