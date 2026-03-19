@@ -172,6 +172,10 @@ describe("task monitor view source", () => {
     assert.match(source, /let pendingComposerFocus = false;/);
     assert.match(source, /private requestPostState\(forceRefreshModels = false\): void {/);
     assert.match(source, /function applyIncomingStateMessage\(message\)/);
+    assert.match(source, /const previousSelectedTaskId = state\.selectedTask\?\.taskId \?\? state\.selectedTaskId;/);
+    assert.match(source, /const nextSelectedTaskId = state\.selectedTask\?\.taskId \?\? state\.selectedTaskId;/);
+    assert.match(source, /if \(nextSelectedTaskId && nextSelectedTaskId !== previousSelectedTaskId\) \{/);
+    assert.match(source, /pinnedToBottom: true,/);
     assert.match(source, /function captureFocusedComposer\(\)/);
     assert.match(source, /function restoreFocusedComposer\(\)/);
     assert.match(source, /private async flushQueuedStatePosts\(forceRefreshModels: boolean\): Promise<void> {/);

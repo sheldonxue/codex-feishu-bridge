@@ -1367,7 +1367,15 @@ export class TaskMonitorPanel implements vscode.Disposable {
 
       function applyIncomingStateMessage(message) {
         finishAllPendingActions();
+        const previousSelectedTaskId = state.selectedTask?.taskId ?? state.selectedTaskId;
         state = message.state;
+        const nextSelectedTaskId = state.selectedTask?.taskId ?? state.selectedTaskId;
+        if (nextSelectedTaskId && nextSelectedTaskId !== previousSelectedTaskId) {
+          conversationScrollByTask[nextSelectedTaskId] = {
+            scrollTop: 0,
+            pinnedToBottom: true,
+          };
+        }
         if (state.selectedTask?.taskId && !composerExecutionProfiles[state.selectedTask.taskId]) {
           composerExecutionProfiles[state.selectedTask.taskId] = defaultComposerExecutionProfile();
         }
