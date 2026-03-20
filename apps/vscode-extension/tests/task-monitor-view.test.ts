@@ -216,4 +216,16 @@ describe("task monitor view source", () => {
     assert.match(source, /autoSelectFirstTask: !this\.hasUserSelectedTask,/);
     assert.match(source, /if \(state\.selectedTaskId && state\.selectedTaskId !== this\.selectedTaskId\) {/);
   });
+
+  it("drops a selected local-only task when the user turns off Show local imported tasks", () => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const sourcePath = path.resolve(currentDir, "../src/panels/task-monitor-view.ts");
+    const source = readFileSync(sourcePath, "utf8");
+
+    assert.match(source, /case "toggle-local-imported-tasks":[\s\S]*if \(!this\.showLocalImportedTasks\) \{/s);
+    assert.match(source, /const selectedTask = this\.getTask\(this\.selectedTaskId\);/);
+    assert.match(source, /if \(selectedTask && !selectedTask\.feishuBinding\) \{/);
+    assert.match(source, /const fallbackVisibleTaskId = this\.options\.store[\s\S]*\.tasks\.find\(\(task\) => Boolean\(task\.feishuBinding\)\)\?\.taskId;/s);
+    assert.match(source, /await this\.setSelectedTask\(fallbackVisibleTaskId, false\);/);
+  });
 });

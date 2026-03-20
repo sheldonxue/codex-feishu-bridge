@@ -174,6 +174,15 @@ export class TaskMonitorPanel implements vscode.Disposable {
             this.showLocalImportedTasks,
           );
           await this.options.setShowLocalImportedTasks(this.showLocalImportedTasks);
+          if (!this.showLocalImportedTasks) {
+            const selectedTask = this.getTask(this.selectedTaskId);
+            if (selectedTask && !selectedTask.feishuBinding) {
+              const fallbackVisibleTaskId = this.options.store
+                .getSnapshot()
+                .tasks.find((task) => Boolean(task.feishuBinding))?.taskId;
+              await this.setSelectedTask(fallbackVisibleTaskId, false);
+            }
+          }
           actionSucceeded = true;
           await this.postState();
           return;
