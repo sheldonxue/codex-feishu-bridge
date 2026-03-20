@@ -66,6 +66,8 @@ describe("feishu card builders", () => {
       assert.ok(Array.isArray(optionsList));
       assert.ok((optionsList?.length ?? 0) > 0);
       assert.equal("option" in select, false);
+      assert.equal(typeof select.initial_option, "string");
+      assert.equal(typeof select.value, "string");
     }
   });
 

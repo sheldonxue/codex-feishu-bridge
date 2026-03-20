@@ -241,16 +241,13 @@ function selectStatic(params: {
     text: plainText(option.label),
     value: option.value,
   }));
-  const initialOptionObject = serializedOptions.find((option) => option.value === (params.initialOption ?? ""));
 
   return {
     tag: "select_static",
     placeholder: plainText(params.placeholder),
-    ...(params.initialOption !== undefined
-      ? { initial_option: initialOptionObject ?? params.initialOption }
-      : {}),
+    ...(params.initialOption !== undefined ? { initial_option: params.initialOption } : {}),
     options: serializedOptions,
-    value: params.value,
+    value: JSON.stringify(params.value),
   };
 }
 

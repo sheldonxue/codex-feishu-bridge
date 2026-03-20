@@ -146,7 +146,7 @@ export interface FeishuCardActionEvent {
   open_message_id?: string;
   token?: string;
   action?: {
-    value?: FeishuCardActionValue;
+    value?: FeishuCardActionValue | string;
     tag?: string;
     option?: string;
     form_value?: Record<string, unknown>;
@@ -635,6 +635,7 @@ function summarizeIncomingMessage(
 }
 
 function summarizeCardAction(event: FeishuCardActionEvent | undefined): Record<string, string | undefined> {
+  const value = parseCardActionValue(event?.action?.value);
   return {
     openId: event?.open_id,
     userId: event?.user_id,
@@ -642,14 +643,14 @@ function summarizeCardAction(event: FeishuCardActionEvent | undefined): Record<s
     openMessageId: event?.open_message_id,
     actionTag: event?.action?.tag,
     actionOption: event?.action?.option,
-    actionKind: event?.action?.value?.kind,
-    threadKey: event?.action?.value?.threadKey,
-    taskId: event?.action?.value?.taskId,
+    actionKind: value?.kind,
+    threadKey: value?.threadKey,
+    taskId: value?.taskId,
   };
 }
 
 function buildCardActionDedupeId(event: FeishuCardActionEvent | undefined): string {
-  const value = event?.action?.value;
+  const value = parseCardActionValue(event?.action?.value);
   const token = event?.token?.trim();
   if (token) {
     return `token:${token}`;
@@ -667,6 +668,23 @@ function buildCardActionDedupeId(event: FeishuCardActionEvent | undefined): stri
     value?.requestId ?? "",
     value?.queuedMessageId ?? "",
   ].join(":");
+}
+
+function parseCardActionValue(rawValue: FeishuCardActionValue | string | undefined): FeishuCardActionValue | undefined {
+  if (!rawValue) {
+    return undefined;
+  }
+
+  if (typeof rawValue === "string") {
+    try {
+      const parsed = JSON.parse(rawValue) as FeishuCardActionValue;
+      return parsed && typeof parsed === "object" ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return rawValue;
 }
 
 export class FeishuBridge {
@@ -2490,7 +2508,7 @@ export class FeishuBridge {
 
   private async handleCardAction(event?: FeishuCardActionEvent): Promise<FeishuInteractiveCard | void> {
     const action = event?.action;
-    const value = action?.value;
+    const value = parseCardActionValue(action?.value);
     if (!value?.kind) {
       this.options.logger.info("ignoring feishu card action without actionable value", summarizeCardAction(event));
       return;

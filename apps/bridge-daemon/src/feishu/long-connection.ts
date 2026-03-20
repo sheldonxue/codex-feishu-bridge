@@ -127,6 +127,10 @@ function summarizeIncomingPayload(
 function summarizeCardActionPayload(
   event: FeishuCardActionEvent | undefined,
 ): Record<string, string | undefined> {
+  const actionValue =
+    typeof event?.action?.value === "string"
+      ? undefined
+      : event?.action?.value;
   return {
     openId: event?.open_id,
     userId: event?.user_id,
@@ -134,9 +138,9 @@ function summarizeCardActionPayload(
     openMessageId: event?.open_message_id,
     actionTag: event?.action?.tag,
     actionOption: event?.action?.option,
-    actionKind: event?.action?.value?.kind,
-    threadKey: event?.action?.value?.threadKey,
-    taskId: event?.action?.value?.taskId,
+    actionKind: actionValue?.kind,
+    threadKey: actionValue?.threadKey,
+    taskId: actionValue?.taskId,
   };
 }
 

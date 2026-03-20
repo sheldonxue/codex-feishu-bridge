@@ -215,6 +215,8 @@ describe("feishu long connection ingress", () => {
       const draftCardRequest = harness.requests.find((request) => requestContainsCardTitle(request, "Create Codex Task"));
       assert.ok(draftCardRequest);
       assert.doesNotMatch(draftCardRequest.body ?? "", /"option":\[/);
+      assert.match(draftCardRequest.body ?? "", /\\"initial_option\\":\\"[^"]+\\"/);
+      assert.match(draftCardRequest.body ?? "", /\\"value\\":\\"\{\\\\\\"kind\\\\\\":/);
       assert.equal(
         harness.requests.some((request) => parseMessageText(request).includes("Current /new draft")),
         false,
@@ -230,12 +232,12 @@ describe("feishu long connection ingress", () => {
         action: {
           tag: "select_static",
           option: "gpt-5.4-mini",
-          value: {
+          value: JSON.stringify({
             kind: "draft.select.model",
             chatId: "oc_chat_id",
             threadKey: "omt_new_task",
             rootMessageId: "om_root_new_task",
-          },
+          }),
         },
       });
       assert.ok(firstCard);
@@ -297,7 +299,7 @@ describe("feishu long connection ingress", () => {
               const card = parseInteractiveCard(request);
               const title = ((card?.header as { title?: { content?: string } } | undefined)?.title?.content ?? "").trim();
               return (
-                title.startsWith("Task Activity:") &&
+                title.startsWith("Activity:") &&
                 (
                   requestContainsCardText(request, "This Feishu message started a turn immediately.") ||
                   requestContainsCardText(request, "This Feishu message was sent into the current running turn.") ||
@@ -346,6 +348,8 @@ describe("feishu long connection ingress", () => {
       const draftCardRequest = harness.requests.find((request) => requestContainsCardTitle(request, "Create Codex Task"));
       assert.ok(draftCardRequest);
       assert.doesNotMatch(draftCardRequest.body ?? "", /"option":\[/);
+      assert.match(draftCardRequest.body ?? "", /\\"initial_option\\":\\"[^"]+\\"/);
+      assert.match(draftCardRequest.body ?? "", /\\"value\\":\\"\{\\\\\\"kind\\\\\\":/);
     } finally {
       await harness.cleanup();
     }
@@ -381,12 +385,12 @@ describe("feishu long connection ingress", () => {
         action: {
           tag: "select_static",
           option: "xhigh",
-          value: {
+          value: JSON.stringify({
             kind: "draft.select.effort",
             chatId: "oc_chat_id",
             threadKey: "omt_models",
             rootMessageId: "om_root_models",
-          },
+          }),
         },
       });
       assert.ok(effortCard);
@@ -398,12 +402,12 @@ describe("feishu long connection ingress", () => {
         action: {
           tag: "select_static",
           option: "gpt-5.4-mini",
-          value: {
+          value: JSON.stringify({
             kind: "draft.select.model",
             chatId: "oc_chat_id",
             threadKey: "omt_models",
             rootMessageId: "om_root_models",
-          },
+          }),
         },
       });
       assert.ok(fallbackCard);
@@ -885,6 +889,8 @@ describe("feishu long connection ingress", () => {
         );
       assert.ok(permissionCardRequest);
       assert.doesNotMatch(permissionCardRequest.body ?? "", /"option":\[/);
+      assert.match(permissionCardRequest.body ?? "", /\\"initial_option\\":\\"[^"]+\\"/);
+      assert.match(permissionCardRequest.body ?? "", /\\"value\\":\\"\{\\\\\\"kind\\\\\\":/);
 
       await harness.onCardAction({
         open_message_id: "om_permission_card",
@@ -892,14 +898,14 @@ describe("feishu long connection ingress", () => {
         action: {
           tag: "select_static",
           option: "danger-full-access",
-          value: {
+          value: JSON.stringify({
             kind: "task.select.sandbox",
             chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
             threadKey: task.feishuBinding?.threadKey ?? "omt_permission_task",
             rootMessageId: task.feishuBinding?.rootMessageId,
             taskId: task.taskId,
             revision: 1,
-          },
+          }),
         },
       });
 
@@ -935,14 +941,14 @@ describe("feishu long connection ingress", () => {
         action: {
           tag: "select_static",
           option: "never",
-          value: {
+          value: JSON.stringify({
             kind: "task.select.approval",
             chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
             threadKey: task.feishuBinding?.threadKey ?? "omt_permission_task",
             rootMessageId: task.feishuBinding?.rootMessageId,
             taskId: task.taskId,
             revision: 2,
-          },
+          }),
         },
       });
 
@@ -1097,7 +1103,7 @@ describe("feishu long connection ingress", () => {
         (request) =>
           request.method === "POST" &&
           request.url.includes("/open-apis/im/v1/messages/") &&
-          requestContainsCardTitle(request, `Task Activity: ${task.title}`),
+          requestContainsCardTitle(request, `Activity: ${task.title}`),
       ).length;
 
       await harness.onMessage(
@@ -1126,7 +1132,7 @@ describe("feishu long connection ingress", () => {
             (request) =>
               request.method === "POST" &&
               request.url.includes("/open-apis/im/v1/messages/") &&
-              requestContainsCardTitle(request, `Task Activity: ${task.title}`),
+              requestContainsCardTitle(request, `Activity: ${task.title}`),
           ).length > previousActivityReplyCount,
         "activity card reply",
       );
@@ -1135,7 +1141,7 @@ describe("feishu long connection ingress", () => {
           (request) =>
             request.method === "POST" &&
             request.url.includes("/open-apis/im/v1/messages/") &&
-            requestContainsCardTitle(request, `Task Activity: ${task.title}`) &&
+            requestContainsCardTitle(request, `Activity: ${task.title}`) &&
             requestContainsCardText(request, "state: queued") &&
             requestContainsCardText(request, "Queued the latest Feishu message for the next turn.") &&
             requestContainsCardText(request, "Withdraw This Message") &&
