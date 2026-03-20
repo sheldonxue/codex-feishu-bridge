@@ -320,15 +320,15 @@ function formatTaskActivityReceiptHeadline(
 ): string {
   switch (state) {
     case "queued":
-      return "已接收消息，默认排队。";
+      return "Message received. Queued for the next turn.";
     case "started":
-      return activityLabel === "thinking" ? "已接收消息，开始思考。" : "已接收消息，已开始执行。";
+      return activityLabel === "thinking" ? "Message received. Codex is thinking." : "Message received.";
     case "steered":
-      return "已接收消息，已插入当前轮。";
+      return "Message received. Added to the current turn.";
     case "withdrawn":
-      return "消息已撤回。";
+      return "Message withdrawn.";
     case "failed":
-      return "消息接收失败。";
+      return "Message delivery failed.";
     default:
       return state;
   }
@@ -337,21 +337,21 @@ function formatTaskActivityReceiptHeadline(
 function formatTaskActivityStatusLine(label: string): string {
   switch (label) {
     case "queued":
-      return "当前状态：排队中";
+      return "Current status: queued";
     case "waiting for approval":
-      return "当前状态：等待审批";
+      return "Current status: waiting for approval";
     case "blocked":
-      return "当前状态：等待输入";
+      return "Current status: waiting for input";
     case "thinking":
-      return "当前状态：思考中";
+      return "Current status: thinking";
     case "idle":
-      return "当前状态：空闲中";
+      return "Current status: idle";
     case "offline":
-      return "当前状态：离线中";
+      return "Current status: offline";
     case "failed":
-      return "当前状态：已失败";
+      return "Current status: failed";
     default:
-      return `当前状态：${label}`;
+      return `Current status: ${label}`;
   }
 }
 
@@ -412,6 +412,13 @@ function formatTaskActivityState(
   }
 
   if (task.status === "running") {
+    if (!task.activeTurnId) {
+      return {
+        label: "idle",
+        detail: "No busy turn is active right now.",
+        template: "green",
+      };
+    }
     return {
       label: "thinking",
       detail: "Codex is actively working on the current turn.",

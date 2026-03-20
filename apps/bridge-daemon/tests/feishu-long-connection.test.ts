@@ -297,9 +297,9 @@ describe("feishu long connection ingress", () => {
                 return false;
               }
               return (
-                requestContainsCardText(request, "已接收消息，开始思考。") ||
-                requestContainsCardText(request, "已接收消息，已开始执行。") ||
-                requestContainsCardText(request, "已接收消息，默认排队。")
+                requestContainsCardText(request, "Message received. Codex is thinking.") ||
+                requestContainsCardText(request, "Message received.") ||
+                requestContainsCardText(request, "Message received. Queued for the next turn.")
               );
             },
           ),
@@ -1136,7 +1136,7 @@ describe("feishu long connection ingress", () => {
         (request) =>
           request.method === "POST" &&
           request.url.includes("/open-apis/im/v1/messages/") &&
-          requestContainsCardText(request, "已接收消息，默认排队。"),
+          requestContainsCardText(request, "Message received. Queued for the next turn."),
       ).length;
 
       await harness.onMessage(
@@ -1165,7 +1165,7 @@ describe("feishu long connection ingress", () => {
             (request) =>
               request.method === "POST" &&
               request.url.includes("/open-apis/im/v1/messages/") &&
-              requestContainsCardText(request, "已接收消息，默认排队。"),
+              requestContainsCardText(request, "Message received. Queued for the next turn."),
           ).length > previousActivityReplyCount,
         "activity card reply",
       );
@@ -1174,8 +1174,8 @@ describe("feishu long connection ingress", () => {
           (request) =>
             request.method === "POST" &&
             request.url.includes("/open-apis/im/v1/messages/") &&
-            requestContainsCardText(request, "已接收消息，默认排队。") &&
-            requestContainsCardText(request, "当前状态：排队中") &&
+            requestContainsCardText(request, "Message received. Queued for the next turn.") &&
+            requestContainsCardText(request, "Current status: queued") &&
             requestContainsCardText(request, "Withdraw This Message") &&
             requestContainsCardText(request, "Run This Message Now"),
         ),

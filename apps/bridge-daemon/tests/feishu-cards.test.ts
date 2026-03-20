@@ -399,10 +399,40 @@ describe("feishu card builders", () => {
 
     const json = JSON.stringify(activityCard);
     assert.doesNotMatch(json, /Activity:/);
-    assert.match(json, /已接收消息，默认排队。/);
-    assert.match(json, /当前状态：排队中/);
+    assert.match(json, /Message received\. Queued for the next turn\./);
+    assert.match(json, /Current status: queued/);
     assert.match(json, /Withdraw This Message/);
     assert.match(json, /Interrupt \+ Run This Message Now/);
+  });
+
+  it("does not keep showing thinking when no active turn is left", () => {
+    const task = createBridgeTask({
+      threadId: "thr-stale-activity-task",
+      title: "Stale activity task",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+    });
+    task.status = "running";
+    task.activeTurnId = undefined;
+
+    const activityCard = createTaskActivityCard({
+      task,
+      binding: BINDING,
+      revision: 6,
+      note: "This Feishu message started a turn.",
+      runtimeConnected: true,
+      runtimeInitialized: true,
+      receiptState: "started",
+      queuedMessageId: "om_stale_receipt",
+      canWithdrawMessage: false,
+      canForceTurn: false,
+    });
+
+    const json = JSON.stringify(activityCard);
+    assert.match(json, /Message received\./);
+    assert.match(json, /Current status: idle/);
+    assert.doesNotMatch(json, /Codex is thinking/);
+    assert.doesNotMatch(json, /Current status: thinking/);
   });
 
   it("renders a read-only inspection snapshot card for More-menu queries", () => {
