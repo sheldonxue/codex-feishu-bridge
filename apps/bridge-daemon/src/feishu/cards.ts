@@ -93,6 +93,14 @@ export interface FeishuTaskPermissionCardData {
   note?: string;
 }
 
+export interface FeishuTaskApprovalCardData {
+  task: BridgeTask;
+  binding: FeishuThreadBinding;
+  approval: QueuedApproval;
+  revision: number;
+  note?: string;
+}
+
 export interface FeishuTaskInspectionSnapshotCardData {
   task: BridgeTask;
   queryLabel: string;
@@ -429,43 +437,50 @@ function baseActionValue(
   };
 }
 
+function buildApprovalActionButtons(
+  task: BridgeTask,
+  binding: FeishuThreadBinding,
+  approval: QueuedApproval,
+  revision: number,
+): Array<Record<string, unknown>> {
+  const value = {
+    taskId: task.taskId,
+    requestId: approval.requestId,
+    revision,
+  };
+
+  return [
+    button({
+      text: "Approve",
+      type: "primary",
+      value: baseActionValue("task.approve", binding, { ...value }),
+    }),
+    button({
+      text: "Decline",
+      type: "danger",
+      value: baseActionValue("task.decline", binding, { ...value }),
+    }),
+    button({
+      text: "Cancel",
+      value: baseActionValue("task.cancel-approval", binding, { ...value }),
+    }),
+  ];
+}
+
 function buildApprovalActionRows(task: BridgeTask, binding: FeishuThreadBinding, revision: number): Array<Record<string, unknown>> {
   return task.pendingApprovals
     .filter((approval) => approval.state === "pending")
-    .flatMap((approval) => {
-      const value = {
-        taskId: task.taskId,
-        requestId: approval.requestId,
-        revision,
-      };
-
-      return [
-        markdown(
-          [
-            `**Pending Approval**`,
-            `requestId: ${approval.requestId}`,
-            `kind: ${approval.kind}`,
-            `reason: ${approval.reason}`,
-          ].join("\n"),
-        ),
-        action([
-          button({
-            text: "Approve",
-            type: "primary",
-            value: baseActionValue("task.approve", binding, { ...value }),
-          }),
-          button({
-            text: "Decline",
-            type: "danger",
-            value: baseActionValue("task.decline", binding, { ...value }),
-          }),
-          button({
-            text: "Cancel Approval",
-            value: baseActionValue("task.cancel-approval", binding, { ...value }),
-          }),
-        ]),
-      ];
-    });
+    .flatMap((approval) => [
+      markdown(
+        [
+          `**Pending Approval**`,
+          `requestId: ${approval.requestId}`,
+          `kind: ${approval.kind}`,
+          `reason: ${approval.reason}`,
+        ].join("\n"),
+      ),
+      action(buildApprovalActionButtons(task, binding, approval, revision)),
+    ]);
 }
 
 export function createCardActionValue(
@@ -889,6 +904,35 @@ export function createTaskPermissionCard(data: FeishuTaskPermissionCardData): Fe
           }),
         }),
       ]),
+    ],
+  };
+}
+
+export function createTaskApprovalCard(data: FeishuTaskApprovalCardData): FeishuInteractiveCard {
+  const note = truncateNote(data.note);
+  const { task, binding, approval, revision } = data;
+  const isPending = approval.state === "pending";
+
+  return {
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+    },
+    header: {
+      title: plainText(`Approval: ${task.title}`),
+      template: isPending ? "yellow" : approval.state === "accepted" ? "green" : "grey",
+    },
+    elements: [
+      markdown(
+        [
+          `requestId: ${approval.requestId}`,
+          `kind: ${approval.kind}`,
+          `state: ${approval.state}`,
+          `reason: ${approval.reason}`,
+        ].join("\n"),
+      ),
+      ...(note ? [divider(), markdown(`**Update**\n${note}`)] : []),
+      ...(isPending ? [divider(), action(buildApprovalActionButtons(task, binding, approval, revision))] : []),
     ],
   };
 }

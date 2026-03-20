@@ -625,6 +625,12 @@ describe("feishu long connection ingress", () => {
         (request) =>
           request.method === "POST" &&
           request.url.includes("/open-apis/im/v1/messages/") &&
+          requestContainsCardTitle(request, `Approval: ${task.title}`),
+      ).length;
+      const previousLongTaskApprovalReplyCount = harness.requests.filter(
+        (request) =>
+          request.method === "POST" &&
+          request.url.includes("/open-apis/im/v1/messages/") &&
           requestContainsCardTitle(request, `Task: ${task.title}`) &&
           requestContainsCardText(request, "Pending Approval"),
       ).length;
@@ -639,17 +645,49 @@ describe("feishu long connection ingress", () => {
         () => (harness.service.getTask(task.taskId)?.pendingApprovals.length ?? 0) > 0,
         "approval after binding",
       );
+      const approval = harness.service.getTask(task.taskId)?.pendingApprovals.find((entry) => entry.state === "pending");
+      assert.ok(approval);
       await waitFor(
         () =>
           harness.requests.filter(
             (request) =>
               request.method === "POST" &&
               request.url.includes("/open-apis/im/v1/messages/") &&
-              requestContainsCardTitle(request, `Task: ${task.title}`) &&
-              requestContainsCardText(request, "Pending Approval"),
+              requestContainsCardTitle(request, `Approval: ${task.title}`),
           ).length > previousApprovalCardReplyCount,
         "approval card reply",
       );
+      assert.equal(
+        harness.requests.filter(
+          (request) =>
+            request.method === "POST" &&
+            request.url.includes("/open-apis/im/v1/messages/") &&
+            requestContainsCardTitle(request, `Task: ${task.title}`) &&
+            requestContainsCardText(request, "Pending Approval"),
+        ).length,
+        previousLongTaskApprovalReplyCount,
+      );
+
+      const approvalActionResult = await harness.onCardAction({
+        open_message_id: "om_approval_card",
+        open_id: "ou_approval_card",
+        action: {
+          tag: "button",
+          value: {
+            kind: "task.approve",
+            chatId: task.feishuBinding?.chatId ?? "oc_chat_id",
+            threadKey: task.feishuBinding?.threadKey ?? "omt_approval_task",
+            rootMessageId: task.feishuBinding?.rootMessageId,
+            taskId: task.taskId,
+            requestId: approval.requestId,
+            revision: 1,
+          },
+        },
+      });
+      assert.ok(approvalActionResult);
+      assert.match(JSON.stringify(approvalActionResult), /Approval: Approval card task/);
+      assert.match(JSON.stringify(approvalActionResult), /state: accepted/);
+      assert.doesNotMatch(JSON.stringify(approvalActionResult), /Task: Approval card task/);
 
       assert.equal(
         harness.requests.some((request) => parseMessageText(request).includes("Approval requested for")),

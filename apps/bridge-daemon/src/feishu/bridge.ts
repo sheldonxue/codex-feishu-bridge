@@ -20,6 +20,7 @@ import {
   createDraftCard,
   FEISHU_TASK_EFFORT_DEFAULT_OPTION,
   FEISHU_TASK_MODEL_DEFAULT_OPTION,
+  createTaskApprovalCard,
   createTaskActivityCard,
   createTaskInspectionSnapshotCard,
   createTaskPermissionCard,
@@ -1053,7 +1054,12 @@ export class FeishuBridge {
           task,
           binding: task.feishuBinding,
           note: `Approval requested: ${approval.kind} - ${approval.reason}`,
-          forceReply: true,
+        });
+        await this.replyTaskApprovalCard({
+          task,
+          binding: task.feishuBinding,
+          approval,
+          note: "A decision is required before this turn can continue.",
         });
         await syncActivityCards();
         return;
@@ -2133,6 +2139,31 @@ export class FeishuBridge {
     await this.sendCardReply(targetMessageId, card);
   }
 
+  private async replyTaskApprovalCard(params: {
+    task: BridgeTask;
+    binding: FeishuThreadBinding;
+    approval: BridgeTask["pendingApprovals"][number];
+    note?: string;
+    replyTargetId?: string;
+  }): Promise<void> {
+    const { task, binding, approval, note, replyTargetId } = params;
+    const currentCard = this.getThreadTaskCard(binding);
+    const revision = (currentCard?.revision ?? 0) + 1;
+    const card = createTaskApprovalCard({
+      task,
+      binding,
+      approval,
+      revision,
+      note,
+    });
+    const targetMessageId =
+      replyTargetId ??
+      binding.rootMessageId ??
+      currentCard?.messageId ??
+      binding.threadKey;
+    await this.sendCardReply(targetMessageId, card);
+  }
+
   private async patchTaskRenameCard(params: {
     task: BridgeTask;
     binding: FeishuThreadBinding;
@@ -2739,6 +2770,8 @@ export class FeishuBridge {
     const currentCard = this.getThreadTaskCard(binding);
     const revision = (currentCard?.revision ?? 0) + 1;
     let note = currentCard?.note;
+    const interactedDetachedCard = Boolean(event?.open_message_id && event.open_message_id !== currentCard?.messageId);
+    let approvalCardResponse: FeishuInteractiveCard | null = null;
 
     switch (value.kind) {
       case "task.select.model": {
@@ -3034,10 +3067,44 @@ export class FeishuBridge {
           task.pendingApprovals.find((entry) => entry.state === "pending");
         if (!approval) {
           note = "No pending approval is available.";
+          if (interactedDetachedCard) {
+            approvalCardResponse = createTaskApprovalCard({
+              task,
+              binding,
+              approval: {
+                requestId: value.requestId ?? "unknown",
+                taskId: task.taskId,
+                kind: "command",
+                reason: "No pending approval is available.",
+                state: "expired",
+                requestedAt: new Date().toISOString(),
+              },
+              revision,
+              note,
+            });
+          }
           break;
         }
         await this.options.service.resolveApproval(task.taskId, approval.requestId, decision);
         note = `Approval ${approval.requestId} resolved as ${decision}.`;
+        if (interactedDetachedCard) {
+          const refreshedTask = this.options.service.getTask(task.taskId) ?? task;
+          const resolvedApproval =
+            refreshedTask.pendingApprovals.find((entry) => entry.requestId === approval.requestId) ??
+            {
+              ...approval,
+              state:
+                decision === "accept" ? "accepted" : decision === "decline" ? "declined" : "cancelled",
+              resolvedAt: new Date().toISOString(),
+            };
+          approvalCardResponse = createTaskApprovalCard({
+            task: refreshedTask,
+            binding,
+            approval: resolvedApproval,
+            revision,
+            note,
+          });
+        }
         break;
       }
       case "task.unbind":
@@ -3122,6 +3189,10 @@ export class FeishuBridge {
         note,
       })) ??
       (await this.buildTaskControlCard(nextTask, binding, revision, note));
+
+    if (approvalCardResponse) {
+      return approvalCardResponse;
+    }
 
     const persistedCurrentCard = this.getThreadTaskCard(binding);
     if (

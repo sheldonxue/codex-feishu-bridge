@@ -6,6 +6,7 @@ import { createBridgeTask, type FeishuThreadBinding } from "@codex-feishu-bridge
 import {
   FEISHU_TASK_EFFORT_DEFAULT_OPTION,
   FEISHU_TASK_MODEL_DEFAULT_OPTION,
+  createTaskApprovalCard,
   createArchivedThreadCard,
   createDraftCard,
   createTaskActivityCard,
@@ -164,7 +165,7 @@ describe("feishu card builders", () => {
     assert.match(taskJson, /Archive Task/);
     assert.match(taskJson, /Unbind Thread/);
     assert.match(taskJson, /Pending Approval/);
-    assert.match(taskJson, /Cancel Approval/);
+    assert.match(taskJson, /Cancel/);
     assert.match(taskJson, /Bridge Health/);
     assert.match(taskJson, /Rate Limits/);
     assert.match(taskJson, /busy Feishu replies: queue next turn/);
@@ -226,6 +227,41 @@ describe("feishu card builders", () => {
     assert.match(json, /Sandbox: danger-full-access/);
     assert.match(json, /Approval: never/);
     assert.match(json, /Permissions updated from Feishu\./);
+  });
+
+  it("renders a short dedicated approval card with action buttons", () => {
+    const task = createBridgeTask({
+      threadId: "thr-approval-task",
+      title: "Approval title",
+      workspaceRoot: "/tmp/workspace",
+      mode: "bridge-managed",
+    });
+    const approval = {
+      requestId: "req-approval",
+      taskId: task.taskId,
+      kind: "command" as const,
+      reason: "Need permission to run a command",
+      state: "pending" as const,
+      requestedAt: "2026-03-20T09:00:00.000Z",
+    };
+
+    const approvalCard = createTaskApprovalCard({
+      task,
+      binding: BINDING,
+      approval,
+      revision: 2,
+      note: "A decision is required before this turn can continue.",
+    });
+
+    const json = JSON.stringify(approvalCard);
+    assert.match(json, /Approval: Approval title/);
+    assert.match(json, /requestId: req-approval/);
+    assert.match(json, /kind: command/);
+    assert.match(json, /state: pending/);
+    assert.match(json, /Need permission to run a command/);
+    assert.match(json, /Approve/);
+    assert.match(json, /Decline/);
+    assert.match(json, /Cancel/);
   });
 
   it("explains the next step when a host task exists but the first turn has not started yet", () => {
