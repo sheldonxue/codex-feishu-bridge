@@ -249,10 +249,6 @@ function selectStatic(params: {
     ...(params.initialOption !== undefined
       ? { initial_option: initialOptionObject ?? params.initialOption }
       : {}),
-    // Some Feishu clients and SDK references disagree on whether the field is
-    // `option` or `options`. Emit both so mobile clients always receive the
-    // candidate list.
-    option: serializedOptions,
     options: serializedOptions,
     value: params.value,
   };

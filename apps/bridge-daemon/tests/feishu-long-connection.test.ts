@@ -212,6 +212,9 @@ describe("feishu long connection ingress", () => {
         () => harness.requests.some((request) => requestContainsCardTitle(request, "Create Codex Task")),
         "draft card reply",
       );
+      const draftCardRequest = harness.requests.find((request) => requestContainsCardTitle(request, "Create Codex Task"));
+      assert.ok(draftCardRequest);
+      assert.doesNotMatch(draftCardRequest.body ?? "", /"option":\[/);
       assert.equal(
         harness.requests.some((request) => parseMessageText(request).includes("Current /new draft")),
         false,
@@ -311,6 +314,38 @@ describe("feishu long connection ingress", () => {
           (harness.service.getTask(createdTask!.taskId)?.queuedMessageCount ?? 0) > 0,
         "follow-up reply or queue receipt",
       );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("replies to a brand-new thread with a parseable draft card", async () => {
+    const harness = await createHarness();
+
+    try {
+      await harness.onMessage(
+        {
+          message_id: "om_plain_draft_only",
+          thread_id: "omt_draft_only",
+          root_id: "om_root_draft_only",
+          chat_id: "oc_chat_id",
+          message_type: "text",
+          content: JSON.stringify({ text: "hello draft only" }),
+        },
+        {
+          sender_id: {
+            open_id: "ou_plain_draft_only",
+          },
+        },
+      );
+
+      await waitFor(
+        () => harness.requests.some((request) => requestContainsCardTitle(request, "Create Codex Task")),
+        "draft card reply",
+      );
+      const draftCardRequest = harness.requests.find((request) => requestContainsCardTitle(request, "Create Codex Task"));
+      assert.ok(draftCardRequest);
+      assert.doesNotMatch(draftCardRequest.body ?? "", /"option":\[/);
     } finally {
       await harness.cleanup();
     }
@@ -840,6 +875,16 @@ describe("feishu long connection ingress", () => {
           ).length > previousPermissionReplyCount,
         "permissions card reply",
       );
+      const permissionCardRequest = [...harness.requests]
+        .reverse()
+        .find(
+          (request) =>
+            request.method === "POST" &&
+            request.url.includes("/open-apis/im/v1/messages/") &&
+            requestContainsCardTitle(request, `Task Permissions: ${task.title}`),
+        );
+      assert.ok(permissionCardRequest);
+      assert.doesNotMatch(permissionCardRequest.body ?? "", /"option":\[/);
 
       await harness.onCardAction({
         open_message_id: "om_permission_card",
