@@ -314,20 +314,44 @@ function formatFeishuRunningMessageMode(mode: FeishuRunningMessageMode): string 
   return mode === "queue" ? "queue next turn" : "steer current turn";
 }
 
-function formatTaskActivityReceiptState(state: FeishuTaskActivityCardData["receiptState"]): string {
+function formatTaskActivityReceiptHeadline(
+  state: FeishuTaskActivityCardData["receiptState"],
+  activityLabel: string,
+): string {
   switch (state) {
     case "queued":
-      return "queued for the next turn";
+      return "已接收消息，默认排队。";
     case "started":
-      return "started as its own turn";
+      return activityLabel === "thinking" ? "已接收消息，开始思考。" : "已接收消息，已开始执行。";
     case "steered":
-      return "sent into the current turn";
+      return "已接收消息，已插入当前轮。";
     case "withdrawn":
-      return "withdrawn before it ran";
+      return "消息已撤回。";
     case "failed":
-      return "failed to deliver";
+      return "消息接收失败。";
     default:
       return state;
+  }
+}
+
+function formatTaskActivityStatusLine(label: string): string {
+  switch (label) {
+    case "queued":
+      return "当前状态：排队中";
+    case "waiting for approval":
+      return "当前状态：等待审批";
+    case "blocked":
+      return "当前状态：等待输入";
+    case "thinking":
+      return "当前状态：思考中";
+    case "idle":
+      return "当前状态：空闲中";
+    case "offline":
+      return "当前状态：离线中";
+    case "failed":
+      return "当前状态：已失败";
+    default:
+      return `当前状态：${label}`;
   }
 }
 
@@ -951,37 +975,24 @@ export function createTaskActivityCard(data: FeishuTaskActivityCardData): Feishu
     canForceTurn,
   } = data;
   const activityState = formatTaskActivityState(task, runtimeConnected, runtimeInitialized);
+  const headline = formatTaskActivityReceiptHeadline(receiptState, activityState.label);
+  const statusLine = formatTaskActivityStatusLine(activityState.label);
 
   return {
     config: {
       wide_screen_mode: true,
       update_multi: true,
     },
-    header: {
-      title: plainText(`Activity: ${task.title}`),
-      template: activityState.template,
-    },
     elements: [
       markdown(
         [
-          "**Receipt**",
-          `receipt: ${formatTaskActivityReceiptState(receiptState)}`,
-          queuedMessageId ? `queued message id: ${queuedMessageId}` : undefined,
+          `**${headline}**`,
+          statusLine,
+          (receiptState === "failed" || receiptState === "withdrawn") && note ? `说明：${note}` : undefined,
         ]
           .filter(Boolean)
           .join("\n"),
       ),
-      divider(),
-      markdown(
-        [
-          "**Status**",
-          `state: ${activityState.label}`,
-          `detail: ${activityState.detail}`,
-          `task status: ${task.status}`,
-          `queued next-turn messages: ${task.queuedMessageCount}`,
-        ].join("\n"),
-      ),
-      ...(note ? [divider(), markdown(`**Update**\n${note}`)] : []),
       ...(canWithdrawMessage || canForceTurn
         ? [
             divider(),

@@ -296,15 +296,10 @@ describe("feishu long connection ingress", () => {
               if (request.method !== "POST" || !request.url.includes("/open-apis/im/v1/messages/")) {
                 return false;
               }
-              const card = parseInteractiveCard(request);
-              const title = ((card?.header as { title?: { content?: string } } | undefined)?.title?.content ?? "").trim();
               return (
-                title.startsWith("Activity:") &&
-                (
-                  requestContainsCardText(request, "This Feishu message started a turn immediately.") ||
-                  requestContainsCardText(request, "This Feishu message was sent into the current running turn.") ||
-                  requestContainsCardText(request, "Queued the latest Feishu message for the next turn.")
-                )
+                requestContainsCardText(request, "已接收消息，开始思考。") ||
+                requestContainsCardText(request, "已接收消息，已开始执行。") ||
+                requestContainsCardText(request, "已接收消息，默认排队。")
               );
             },
           ),
@@ -1141,7 +1136,7 @@ describe("feishu long connection ingress", () => {
         (request) =>
           request.method === "POST" &&
           request.url.includes("/open-apis/im/v1/messages/") &&
-          requestContainsCardTitle(request, `Activity: ${task.title}`),
+          requestContainsCardText(request, "已接收消息，默认排队。"),
       ).length;
 
       await harness.onMessage(
@@ -1170,7 +1165,7 @@ describe("feishu long connection ingress", () => {
             (request) =>
               request.method === "POST" &&
               request.url.includes("/open-apis/im/v1/messages/") &&
-              requestContainsCardTitle(request, `Activity: ${task.title}`),
+              requestContainsCardText(request, "已接收消息，默认排队。"),
           ).length > previousActivityReplyCount,
         "activity card reply",
       );
@@ -1179,9 +1174,8 @@ describe("feishu long connection ingress", () => {
           (request) =>
             request.method === "POST" &&
             request.url.includes("/open-apis/im/v1/messages/") &&
-            requestContainsCardTitle(request, `Activity: ${task.title}`) &&
-            requestContainsCardText(request, "state: queued") &&
-            requestContainsCardText(request, "Queued the latest Feishu message for the next turn.") &&
+            requestContainsCardText(request, "已接收消息，默认排队。") &&
+            requestContainsCardText(request, "当前状态：排队中") &&
             requestContainsCardText(request, "Withdraw This Message") &&
             requestContainsCardText(request, "Run This Message Now"),
         ),

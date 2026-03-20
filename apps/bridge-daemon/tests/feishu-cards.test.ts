@@ -398,12 +398,9 @@ describe("feishu card builders", () => {
     });
 
     const json = JSON.stringify(activityCard);
-    assert.match(json, /Activity: Activity task/);
-    assert.match(json, /Receipt/);
-    assert.match(json, /receipt: queued for the next turn/);
-    assert.match(json, /Status/);
-    assert.match(json, /state: queued/);
-    assert.match(json, /Queued the latest Feishu message for the next turn\./);
+    assert.doesNotMatch(json, /Activity:/);
+    assert.match(json, /已接收消息，默认排队。/);
+    assert.match(json, /当前状态：排队中/);
     assert.match(json, /Withdraw This Message/);
     assert.match(json, /Interrupt \+ Run This Message Now/);
   });
